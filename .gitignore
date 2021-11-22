@@ -131,4 +131,8 @@ dmypy.json
 # VSCode
 /.vscode
 #logs
-.log
+*/*.log
+#databases
+ProcessPlot/settings/*
+ProcessPlot/data/*
+
