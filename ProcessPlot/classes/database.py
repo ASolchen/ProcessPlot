@@ -4,10 +4,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
-from sqlalchemy.sql.sqltypes import Numeric
+from sqlalchemy.sql.sqltypes import Float, Numeric
 
 
-# see videosbelow for help:
+# see videos below for help:
 # https://www.youtube.com/watch?v=jaKMm9njcJc&list=PL4iRawDSyRvVd1V7A45YtAGzDk6ljVPm1
 
 
@@ -26,6 +26,9 @@ class UiSettings(SettingsBase):
     id = Column(Integer, primary_key=True)
     dark_mode = Column(Boolean)
     charts = Column(Integer)
+    headless = Column(Boolean)
+    screen_width = Column(Integer)
+    screen_height = Column(Integer)
     #other cols
 
 class ChartLayoutSettings(SettingsBase):
@@ -48,9 +51,16 @@ class ChartSettings(SettingsBase):
 class PenSettings(SettingsBase):
     __tablename__ = 'pen_settings'
     id = Column(Integer, primary_key=True)
+    chart_id = Column(Integer)
+    tag_id = Column(Integer)
+    connection_id = Column(Integer)
     visible = Column(Boolean)
     color = Column(String) #rgb in json
     weight = Column(Numeric) # width
+    scale_minimum = Column(Numeric)
+    scale_maximum = Column(Numeric)
+    scale_lock = Column(Boolean)
+    scale_auto = Column(Boolean)
 
     #other cols
 
@@ -59,7 +69,7 @@ class Values(DataBase):
     __tablename__ = 'values'
     id = Column(Integer, primary_key=True)
     point_id = Column(Integer)
-    timestamp = Column(DateTime)
+    timestamp = Column(Numeric)
     value = Column(Numeric)
 
 
