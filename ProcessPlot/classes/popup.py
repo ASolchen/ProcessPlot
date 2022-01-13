@@ -21,6 +21,8 @@ SOFTWARE.
 """
 
 import gi, os
+
+from numpy import maximum
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GObject
 import re
@@ -43,8 +45,42 @@ class BaseSettingsPopoup(Gtk.Dialog):
     self.content_area = self.get_content_area()
 
     self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window)
+    ### -title bar- ####
     self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    ### -content area- ####
+    self.base_area = Gtk.Box(spacing = 10,orientation=Gtk.Orientation.VERTICAL,margin = 20)
+    self.scroll = Gtk.ScrolledWindow(width_request = 1400,height_request = 600)
+    self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    self.scroll.add(self.base_area)
+    self.dialog_window.pack_start(self.scroll,1,1,1)
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
 
+    self.build_header(title)
+    self.build_base()
+    self.build_footer()
+    self.show_all()
+
+  def add_style(self, item,style):
+    sc = item.get_style_context()
+    for sty in style:
+      sc.add_class(sty)
+
+  def close_popup(self, button):
+    self.destroy()
+
+  def build_header(self,title):
     #header
     title = Gtk.Label(label=title)
     sc = title.get_style_context()
@@ -60,40 +96,115 @@ class BaseSettingsPopoup(Gtk.Dialog):
     self.title_bar.pack_end(self.pin_button,0,0,1)
     sc = self.pin_button.get_style_context()
     sc.add_class('exit-button')
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    self.dialog_window.pack_start(divider,0,0,1)
-    self.content_area.add(self.dialog_window )
-    self.build_base()
-    self.show_all()
-
-  def add_style(self, item,style):
-    sc = item.get_style_context()
-    for sty in style:
-      sc.add_class(sty)
-
-  def close_popup(self, button):
-    self.destroy()
 
   def build_base(self):
     pass
+
+  def build_footer(self):
+    pass
+
+#build calendar picker, chart settings popup, time window / range to display,
 
 
 class PenSettingsPopup(BaseSettingsPopoup):
 
   def __init__(self, parent,app):
+    self.chart_filter = 'All'
+    self.unsaved_changes_present = False
+    self.unsaved_pen_rows = {}
+    self.pen_column_names = ['id', 'chart_id', 'tag_id', 'connection_id', 'visible', 
+                      'color', 'weight','scale_minimum','scale_maximum', 
+                      'scale_lock', 'scale_auto']
     super().__init__(parent,"Pen Settings",app)
+    self.app = app
+  
+  def build_header(self,title):
+    #header
+    db_c_num = 'All'
+    selections = ['All',"Chart 1",'Chart 2','Chart 3',"Chart 4",'Chart 5','Chart 6',"Chart 7",'Chart 8','Chart 9',
+                  "Chart 10",'Chart 11','Chart 12',"Chart 13",'Chart 14','Chart 15','Chart 16']
+    self.c_num = Gtk.ComboBoxText()
+    self.c_num.set_entry_text_column(0)
+    for x in selections:
+        self.c_num.append_text(x)
+    try:
+      idx = selections.index(str(db_c_num))
+    except IndexError:
+      idx = 0
+    self.c_num.set_active(idx)
+    sc = self.c_num.get_style_context()
+    sc.add_class('ctrl-combo')
+    self.c_num.connect("changed", self.filter_disp_chart)
+    self.title_bar.pack_start(self.c_num,0,0,1)
+
+    self.add_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/AddPen.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.add_button.add(image)
+    sc = self.add_button.get_style_context()
+    sc.add_class('ctrl-button')
+    self.title_bar.pack_start(self.add_button,0,0,0)
+    self.add_button.connect('clicked',self.create_new_pen)
+
+    title = Gtk.Label(label=title,width_request = 1000)
+    sc = title.get_style_context()
+    sc.add_class('text-black-color')
+    sc.add_class('font-18')
+    sc.add_class('font-bold')
+    self.title_bar.pack_start(title,1,1,1)
+
+    self.pin_button = Gtk.Button(width_request = 20)
+    self.pin_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.pin_button.add(image)
+    self.title_bar.pack_end(self.pin_button,0,0,1)
+    sc = self.pin_button.get_style_context()
+    sc.add_class('exit-button')
 
   def build_base(self):
     self.db_session = self.app.settings_db.session
     self.db_model = self.app.settings_db.models['pen']
-    Tbl = self.db_model
+    self.Tbl = self.db_model
+    self.pen_settings = []
+    self.pen_row_num = 1
+    #header = self.db_session.query(self.Tbl).first()
+    #self.pen_column_names = header.__table__.columns
     self.pen_grid = Gtk.Grid(column_homogeneous=False,column_spacing=20,row_spacing=10)
-    self.content_area.add(self.pen_grid)
-    labels = ['Chart Number', 'Connection', 'Tag', 'Hide', 'Color',
-          'Width', 'Scale Min', 'Scale Max', 'Auto Scale','Lock Scale','Save'] # may want to create a table in the db for column names
+    self.base_area.add(self.pen_grid)
+    #header
+    self.add_column_names()
+    self.add_pen_rows(self.chart_filter)
+    self.show_all()
+  
+  def build_footer(self):
+    self.ok_button = Gtk.Button(width_request = 100)
+    self.ok_button.connect('clicked',self.saveall_pen_rows)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-14')
+    sc.add_class('font-bold')
+    box.pack_start(lbl,1,1,1)
+    box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button')
+
+  def filter_disp_chart(self,chart_filter,*args):
+    temp = chart_filter.get_active_text()
+    val = temp.strip('Chart ')
+    self.chart_filter = val
+    self.remove_pen_rows()
+    self.add_column_names()
+    self.add_pen_rows(self.chart_filter)
+
+  def add_column_names(self,*args):
+    labels = ['Chart','Enabled','Connection', 'Tag', 'Color',
+      'Width', 'Scale Min', 'Scale Max', 'Auto Scale','Lock Scale','Save',''] # may want to create a table in the db for column names
     for l_idx in range(len(labels)):
         l = Gtk.Label(labels[l_idx])
         sc = l.get_style_context()
@@ -101,177 +212,311 @@ class PenSettingsPopup(BaseSettingsPopoup):
         sc.add_class('font-14')
         sc.add_class('font-bold')
         self.pen_grid.attach(l, l_idx, 0, 1, 1)
-    settings = self.db_session.query(Tbl).order_by(Tbl.id)
-    column_names = self.db_session.query(Tbl).first()
-    k2 = column_names.__table__.columns
+
+  def create_delete_button(self,pen_id,row,*args):
+    self.delete_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Delete.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.delete_button.add(image)
+    sc = self.delete_button.get_style_context()
+    sc.add_class('ctrl-button')
+    self.pen_grid.attach(self.delete_button,11,row,1,1)
+    self.delete_button.connect('clicked',self.confirm,pen_id)
+  
+  def delete_row(self,row_id,*args):
+    settings = self.db_session.query(self.Tbl).filter(self.Tbl.id == row_id).first()
+    self.db_session.query(self.Tbl).filter(self.Tbl.id == row_id).delete()
+    self.db_session.commit()
+    self.remove_pen_rows()
+    self.add_column_names()
+    self.add_pen_rows(self.chart_filter)
+    self.delete_pen_object(row_id,settings.chart_id)
+
+  def add_pen_rows(self,chart_filter,*args):
+    #pen row
+    if chart_filter == 'All':
+      settings = self.db_session.query(self.Tbl).order_by(self.Tbl.id)
+    else:
+      settings = self.db_session.query(self.Tbl).filter(self.Tbl.chart_id == int(chart_filter)).order_by(self.Tbl.id) 
     params = {}
-    for i in k2:
-      key = str(i).split('.')[1]
-      params[key] = 1
-      for pen in settings:
-        #print(pen.connection_id)
-        params[key] = getattr(pen, key)
+    if len(settings.all()) == 0:
+      self.pen_grid.set_column_homogeneous(True)
+    else:
+      self.pen_grid.set_column_homogeneous(False)      
+    for pen in settings:
+      for c in self.pen_column_names:
+        params[c] = getattr(pen, c)
+      row = Pen_row(params,self.pen_grid,self.pen_row_num,self.app,self)
+      self.create_delete_button(params['id'],self.pen_row_num)
+      params.clear()
+      self.pen_row_num += 1
+      self.pen_settings.append(row)
+    self.show_all()
 
-##########################THis will not work with multiple rows read back
+  def remove_pen_rows(self,*args):
+    rows = self.pen_grid.get_children()
+    for items in rows:
+      self.pen_grid.remove(items)
+  
+  def create_new_pen(self,*args):
+    if self.chart_filter == 'All':
+      c_id = 1
+    else:
+      c_id = int(self.chart_filter)
+    new = self.Tbl(chart_id = c_id)
+    self.db_session.add(new)
+    self.db_session.commit()    
+    self.db_session.refresh(new)  #Retrieves newly created pen id from the database (new.id)
+    self.insert_pen_row()
+    self.create_pen_object(new.id,c_id)
 
- 
-    print(params)
-    self.add_row('Add Data')
+  def create_pen_object(self,id,chart_id,*args):
+    self.app.charts[chart_id].add_pen(id)
+  
+  def delete_pen_object(self,id,chart_id,*args):
+    self.app.charts[chart_id].delete_pen(id)
 
-  def add_row(self,data,*args):
+  def insert_pen_row(self,*args):
+    self.pen_grid.set_column_homogeneous(False) 
+    self.pen_grid.insert_row(1)
+    last_pen = self.db_session.query(self.Tbl).order_by(self.Tbl.id.desc()).first()
+    params = {}
+    for c in self.pen_column_names:
+      params[c] = getattr(last_pen, c)
+    row = Pen_row(params,self.pen_grid,1,self.app,self)
+    self.create_delete_button(params['id'],1)
+    params.clear()
+    self.pen_row_num += 1
+    self.pen_settings.append(row)
+    self.show_all()
+
+  def confirm(self, button,pen_id,msg="Are you sure you want to delete this pen?", args=[]):
+    popup = PopupConfirm(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      self.delete_row(pen_id)
+      return True
+    else:
+      return False
+
+  def unsaved_changes(self,status,pen_row,id,*args):
+    #This method holds references to pen rows for saveall changes on OK button
+    self.unsaved_changes_present = status
+    if status:
+      self.unsaved_pen_rows[id] = pen_row
+    else:
+      del self.unsaved_pen_rows[id]
+
+  def saveall_pen_rows(self,*args):
+    #when clicking ok button, save all unsaved settings, clear unsaved dictionary, and close popup
+    for key,pen_row in self.unsaved_pen_rows.items():
+      pen_row.update_db()
+    self.unsaved_changes_present = False
+    self.unsaved_pen_rows = {}
+    self.close_popup(None)
+
+  def close_popup(self, button,msg="Abandon Pen Settings Changes?"):
+    if self.unsaved_changes_present:
+      popup = PopupConfirm(self, msg=msg)
+      response = popup.run()
+      popup.destroy()
+      if response == Gtk.ResponseType.YES:
+        self.destroy()
+        return True
+      else:
+        return False
+    else:
+      self.destroy()
+
+
+class Pen_row(object):
+  def __init__(self,params,pen_grid,row_num,app,parent,*args):
+    self.app = app
+    self.parent = parent
+    self.db_settings_session = self.app.settings_db.session
+    self.db_settings_model = self.app.settings_db.models['pen']
+    self.Pen_Settings_Tbl = self.db_settings_model
+
+    self.db_conn_session = self.app.connections_db.session
+    self.db_conn_model = self.app.connections_db.models['connections']
+    self.Connections_Tbl = self.db_conn_model
+
+    self.db_conn_session = self.app.connections_db.session
+    self.db_conn_model = self.app.connections_db.models['tags']
+    self.Tags_Tbl = self.db_conn_model
+
+    self.params = params
+    self.pen_grid = pen_grid
+    self.pen_row_num = row_num
+    self.id = self.params['id']
+    self.chart_id = self.params['chart_id']
+    if self.params['connection_id'] == None:
+      self.db_conn_id = 0
+    else:
+      self.db_conn_id = self.params['connection_id']
+    if self.params['tag_id'] == None:
+      self.db_tag_id = 0
+    else:
+      self.db_tag_id = self.params['tag_id']
+    self.unsaved_changes = False      #Need to pass this up so that confirm closing popup with unsaved changes
+    self.connections_available = {}
+    self.tags_available = {}
+    self.get_available_connections()
+    self.get_available_tags(self.db_conn_id)
+    self.build_row()
     #Rows start at 1 because row 0 is titles
     #Grid : Left,Top,Width,Height
 
+  def build_row(self,*args):
     #Chart Select
-    db_chart_number = 1 #this will get filled in by database value
-    selections = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"]
-    chart_number = Gtk.ComboBoxText(width_request = 20)
-    chart_number.set_entry_text_column(0)
-    #self.number_of_charts.connect("changed", self.get_number_of_charts)
+    db_chart_number = str(self.params['chart_id'])
+    selections = []
+    for num in range(self.app.charts_number):
+      selections.append(str(num+1))
+    self.chart_number = Gtk.ComboBoxText(width_request = 20)
     for x in selections:
-        chart_number.append_text(x)
+        self.chart_number.append_text(x)
     try:
       idx = selections.index(str(db_chart_number))
     except IndexError:
       idx = 0
-    sc = chart_number.get_style_context()
+    sc = self.chart_number.get_style_context()
     sc.add_class('ctrl-combo')
-    chart_number.set_active(idx)
-    self.pen_grid.attach(chart_number,0,1,1,1)
-
-    #Connection Select
-    db_conn_select = "Modbus" #this will get filled in by database value
-    selections = ["Modbus"]
-    conn_select = Gtk.ComboBoxText(width_request = 300)
-    conn_select.set_entry_text_column(0)
-    #self.number_of_charts.connect("changed", self.get_number_of_charts)
-    for x in selections:
-        conn_select.append_text(x)
-    try:
-      idx = selections.index(str(db_conn_select))
-    except IndexError:
-      idx = 0
-    sc = conn_select.get_style_context()
-    sc.add_class('ctrl-combo')
-    conn_select.set_active(idx)
-    self.pen_grid.attach(conn_select,1,1,1,1)
-
-    #Tag Select
-    db_tag_select = "Field Current" #this will get filled in by database value
-    selections = ["Field Current"]
-    tag_select = Gtk.ComboBoxText(hexpand = True)
-    tag_select.set_entry_text_column(0)
-    #self.number_of_charts.connect("changed", self.get_number_of_charts)
-    for x in selections:
-        tag_select.append_text(x)
-    try:
-      idx = selections.index(str(db_tag_select))
-    except IndexError:
-      idx = 0
-    tag_select.set_active(idx)
-    sc = tag_select.get_style_context()
-    sc.add_class('ctrl-combo')
-    self.pen_grid.attach(tag_select,2,1,1,1)
+    self.chart_number.set_active(idx)
+    self.pen_grid.attach(self.chart_number,0,self.pen_row_num,1,1)
+    self.chart_number.connect("changed", self.row_changed)
 
     #Display Status
-    db_display_status = 1 #this will get filled in by database value
+    db_display_status = bool(self.params['visible'])
     box= Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     wid =CheckBoxWidget(30,30,image,db_display_status)
-    t_button = wid.return_self()
-    sc = t_button.get_style_context()
+    self.display_status = wid.return_self()
+    sc = self.display_status.get_style_context()
     sc.add_class('check-box')
-    #t_button.connect("toggled", self.get_dark_toggle)
-    box.set_center_widget(t_button)
-    #box.pack_start(t_button,0,0,0)
-    self.pen_grid.attach(box,3,1,1,1)
+    box.set_center_widget(self.display_status)
+    self.pen_grid.attach(box,1,self.pen_row_num,1,1)
+    self.display_status.connect("toggled", self.row_changed)
+
+    #Connection Select
+    if self.db_conn_id in self.connections_available.keys():
+      params = self.connections_available[self.db_conn_id]
+    else:
+      params = self.connections_available[0]
+    self.conn_select = Gtk.ComboBoxText(width_request = 300)
+    for key, val in self.connections_available.items():
+      self.conn_select.append_text(val['desc'])
+    self.conn_select.set_active(int(params['count']))
+    sc = self.conn_select.get_style_context()
+    sc.add_class('ctrl-combo')
+    self.pen_grid.attach(self.conn_select,2,self.pen_row_num,1,1)
+    self.conn_select.connect("changed", self.row_changed)
+    self.conn_select.connect("changed",self.new_connection_selelcted)
+
+
+    #Tag Select
+    if self.db_tag_id in self.tags_available.keys():
+      params = self.tags_available[self.db_tag_id]
+    else:
+      params = self.tags_available[0]
+    self.tag_select = Gtk.ComboBoxText(hexpand = True)
+    for key, val in self.tags_available.items():
+      self.tag_select.append_text(val['desc'])
+    self.tag_select.set_active(int(params['count']))
+    sc = self.tag_select.get_style_context()
+    sc.add_class('ctrl-combo')
+    self.pen_grid.attach(self.tag_select,3,self.pen_row_num,1,1)
+    self.tag_select.connect("changed", self.row_changed)
 
     #color
-    color="#0000FF" #this will get filled in by database value
+    db_color = str(self.params['color']) #example:#0000FF
     rgbcolor = Gdk.RGBA()
-    rgbcolor.parse(color)
+    rgbcolor.parse(db_color)
     rgbcolor.to_string()
-    color_button = Gtk.ColorButton(width_request = 20)
-    color_button.set_rgba (rgbcolor)
-    sc = color_button.get_style_context()
+    self.color_button = Gtk.ColorButton(width_request = 20)
+    self.color_button.set_rgba (rgbcolor)
+    sc = self.color_button.get_style_context()
     sc.add_class('ctrl-button')
-    #color_button.connect('clicked',self.open_numpad,conn_select)
-    self.pen_grid.attach(color_button,4,1,1,1)
+    self.pen_grid.attach(self.color_button,4,self.pen_row_num,1,1)
+    self.color_button.connect('color-set',self.row_changed)
 
     #line width
-    db_line_width = '1' #this will get filled in by database value
-    line_width = Gtk.Button(width_request = 20)
-    lbl = Gtk.Label()
-    lbl.set_label(db_line_width)
-    self.add_style(lbl,['borderless-num-display','font-14','text-black-color'])
-    line_width.add(lbl)
-    sc = line_width.get_style_context()
+    db_line_width = str(self.params['weight']) 
+    but = Gtk.Button(width_request = 20)
+    self.line_width = Gtk.Label()
+    self.line_width.set_label(db_line_width)
+    self.add_style(self.line_width,['borderless-num-display','font-14','text-black-color'])
+    but.add(self.line_width)
+    sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    line_width.connect('clicked',self.open_numpad,lbl,{'min':0,'max':16,'type':int,'polarity':False})
-    self.pen_grid.attach(line_width,5,1,1,1)
+    but.connect('clicked',self.open_numpad,self.line_width,{'min':0,'max':16,'type':int,'polarity':False})
+    self.pen_grid.attach(but,5,self.pen_row_num,1,1)
+    but.connect('clicked',self.row_changed)
 
     #scale minimum
-    db_scale_minimum = '-32768' #this will get filled in by database value
-    scale_minimum = Gtk.Button(width_request = 100)
-    lbl = Gtk.Label()
-    lbl.set_label(db_scale_minimum)
-    self.add_style(lbl,['borderless-num-display','font-14','text-black-color'])
-    scale_minimum.add(lbl)
-    sc = scale_minimum.get_style_context()
+    db_scale_minimum = str(self.params['scale_minimum']) 
+    but = Gtk.Button(width_request = 100)
+    self.scale_minimum = Gtk.Label()
+    self.scale_minimum.set_label(db_scale_minimum)
+    self.add_style(self.scale_minimum,['borderless-num-display','font-14','text-black-color'])
+    but.add(self.scale_minimum)
+    sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    scale_minimum.connect('clicked',self.open_numpad,lbl,{'min':-32768,'max':32768,'type':float,'polarity':True})
-    self.pen_grid.attach(scale_minimum,6,1,1,1)
+    but.connect('clicked',self.open_numpad,self.scale_minimum,{'min':-32768,'max':32768,'type':float,'polarity':True})
+    self.pen_grid.attach(but,6,self.pen_row_num,1,1)
+    but.connect('clicked',self.row_changed)
+
 
     #scale maximum
-    db_scale_maximum = '32768' #this will get filled in by database value
-    scale_maximum = Gtk.Button(width_request = 100)
-    lbl = Gtk.Label()
-    lbl.set_label(db_scale_maximum)
-    self.add_style(lbl,['borderless-num-display','font-14','text-black-color'])
-    scale_maximum.add(lbl)
-    sc = scale_maximum.get_style_context()
+    db_scale_maximum = str(self.params['scale_maximum']) 
+    but = Gtk.Button(width_request = 100)
+    self.scale_maximum = Gtk.Label()
+    self.scale_maximum.set_label(db_scale_maximum)
+    self.add_style(self.scale_maximum,['borderless-num-display','font-14','text-black-color'])
+    but.add(self.scale_maximum)
+    sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    scale_maximum.connect('clicked',self.open_numpad,lbl,{'min':-32768,'max':32768,'type':float,'polarity':True})
-    self.pen_grid.attach(scale_maximum,7,1,1,1)
+    but.connect('clicked',self.open_numpad,self.scale_maximum,{'min':-32768,'max':32768,'type':float,'polarity':True})
+    self.pen_grid.attach(but,7,self.pen_row_num,1,1)
+    but.connect('clicked',self.row_changed)
 
     #Autoscale Status
-    db_autoscale_status = 1 #this will get filled in by database value
+    db_autoscale_status = bool(self.params['scale_auto'])
     box= Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     wid =CheckBoxWidget(30,30,image,db_autoscale_status)
-    t_button = wid.return_self()
-    sc = t_button.get_style_context()
+    self.autoscale_status = wid.return_self()
+    sc = self.autoscale_status.get_style_context()
     sc.add_class('check-box')
-    #t_button.connect("toggled", self.get_dark_toggle)
-    box.set_center_widget(t_button)
-    #box.pack_start(t_button,0,0,0)
-    self.pen_grid.attach(box,8,1,1,1)
+    box.set_center_widget(self.autoscale_status)
+    self.pen_grid.attach(box,8,self.pen_row_num,1,1)
+    self.autoscale_status.connect("toggled", self.row_changed)
 
     #Lockscale Status
-    db_lockscale_status = 1 #this will get filled in by database value
+    db_lockscale_status = bool(self.params['scale_lock'])
     box= Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     wid =CheckBoxWidget(30,30,image,db_lockscale_status)
-    t_button = wid.return_self()
-    sc = t_button.get_style_context()
+    self.lockscale_status = wid.return_self()
+    sc = self.lockscale_status.get_style_context()
     sc.add_class('check-box')
-    #t_button.connect("toggled", self.get_dark_toggle)
-    box.set_center_widget(t_button)
-    #box.pack_start(t_button,0,0,0)
-    self.pen_grid.attach(box,9,1,1,1)
+    box.set_center_widget(self.lockscale_status)
+    self.pen_grid.attach(box,9,self.pen_row_num,1,1)
+    self.lockscale_status.connect("toggled", self.row_changed)
 
     #Save Button
     self.save_button = Gtk.Button(width_request = 30)
-    #self.pin_button.connect('clicked',self.close_popup)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     self.save_button.add(image)
     sc = self.save_button.get_style_context()
     sc.add_class('ctrl-button')
-    self.pen_grid.attach(self.save_button,10,1,1,1)
+    self.pen_grid.attach(self.save_button,10,self.pen_row_num,1,1)
+    self.save_button.connect('clicked',self.save_settings)
     
   def open_numpad(self,button,widget_obj,params,*args):
     numpad = ValueEnter(self,widget_obj,params)
@@ -282,7 +527,157 @@ class PenSettingsPopup(BaseSettingsPopoup):
       pass
       #callback(args)
     numpad.destroy()
+  
+  def row_changed(self,*args):
+    self.add_style(self.save_button,['exit-button'])
+    self.parent.unsaved_changes(True,self,self.id)
+  
+  def row_updated(self,*args):
+    self.add_style(self.save_button,['ctrl-button'])
+    self.parent.unsaved_changes(False,self,self.id)
 
+  def new_connection_selelcted(self, *args):
+    pass
+    c_temp = self.conn_select.get_active_text()
+    id = 0
+    for key, val in self.connections_available.items():
+      if val['desc'] == c_temp:
+        id = int(val['id'])
+    self.db_conn_id = id
+    self.get_available_tags(self.db_conn_id)
+    self.tag_select.remove_all()
+    for key, val in self.tags_available.items():
+      self.tag_select.append_text(val['desc'])
+    self.tag_select.set_active(0)
+  
+  def save_settings(self,button,*args):
+    self.update_db()
+    self.row_updated()
+
+  def update_db(self,*args):
+    p_settings = {}
+    p_settings['id'] = self.id
+    settings = self.db_settings_session.query(self.Pen_Settings_Tbl).filter(self.Pen_Settings_Tbl.id == self.id).first()  # save the current settings
+    if settings:
+      chart_id= int(self.chart_number.get_active_text())
+      settings.chart_id = chart_id
+      p_settings['chart_id'] = chart_id
+
+      #search list to match tag name with id number
+      t_temp = self.tag_select.get_active_text()
+      t_id = 0
+      for key, val in self.tags_available.items():
+        if val['desc'] == t_temp:
+          t_id = int(val['id'])
+      settings.tag_id = t_id
+      p_settings['tag_id'] = t_id
+
+      #search list to match connection name with id number
+      c_temp = self.conn_select.get_active_text()
+      c_id = 0
+      for key, val in self.connections_available.items():
+        if val['desc'] == c_temp:
+          c_id = int(val['id'])
+      settings.connection_id = c_id
+      p_settings['connection_id'] = c_id
+
+      visible = int(self.display_status.get_active())
+      settings.visible = visible
+      p_settings['visible'] = visible
+
+      weight = self.line_width.get_label()
+      settings.weight = weight
+      p_settings['weight'] = weight
+
+      rgba_color = self.color_button.get_rgba()
+      red = int(rgba_color.red*255)
+      green = int(rgba_color.green*255)
+      blue = int(rgba_color.blue*255)
+      hex_color =  '#{r:02x}{g:02x}{b:02x}'.format(r=red,g=green,b=blue)
+      settings.color = hex_color
+      p_settings['color'] = hex_color
+      
+      minimum = self.scale_minimum.get_label()
+      settings.scale_minimum = minimum
+      p_settings['scale_minimum'] = minimum
+
+      maximum = self.scale_maximum.get_label()
+      settings.scale_maximum = maximum
+      p_settings['scale_maximum'] = maximum
+
+      lock = int(self.lockscale_status.get_active())
+      settings.scale_lock = lock
+      p_settings['scale_lock'] = lock
+
+      auto = int(self.autoscale_status.get_active())
+      settings.scale_auto = auto
+      p_settings['scale_auto'] = auto
+
+
+    self.db_settings_session.commit()
+    self.update_pen_object(p_settings)
+
+  def update_pen_object(self,p_settings,*args):
+    self.app.charts[self.chart_id].pens[self.id]._chart_id = p_settings['chart_id']
+    self.app.charts[self.chart_id].pens[self.id]._tag_id = p_settings['tag_id']
+    self.app.charts[self.chart_id].pens[self.id]._connection_id = p_settings['connection_id']
+    self.app.charts[self.chart_id].pens[self.id]._visible = p_settings['visible']
+    self.app.charts[self.chart_id].pens[self.id]._weight = p_settings['weight']
+    self.app.charts[self.chart_id].pens[self.id]._color = p_settings['color']
+    self.app.charts[self.chart_id].pens[self.id]._scale_minimum = p_settings['scale_minimum']
+    self.app.charts[self.chart_id].pens[self.id]._scale_maximum = p_settings['scale_maximum']
+    self.app.charts[self.chart_id].pens[self.id]._scale_lock = p_settings['scale_lock']
+    self.app.charts[self.chart_id].pens[self.id]._scale_auto = p_settings['scale_auto']
+    p_obj = self.app.charts[self.chart_id].pens[self.id]
+    #print(p_obj)
+    #print(self.app.charts[self.chart_id].pens)
+    #print(self.app.charts[p_settings['chart_id']].pens)
+
+    if p_settings['chart_id'] != self.chart_id:
+      #chart ID was changed so need to move pen object into other chart object
+      self.app.charts[p_settings['chart_id']].pens[self.id] = p_obj
+      del self.app.charts[self.chart_id].pens[self.id]
+      #print(self.app.charts[self.chart_id].pens)
+      #print(self.app.charts[p_settings['chart_id']].pens)
+  
+  def add_style(self, item,style):
+    sc = item.get_style_context()
+    for items in sc.list_classes():
+      #remove all default styles
+      sc.remove_class(items)
+    for sty in style:
+      #add new styles
+      sc.add_class(sty)
+
+  def get_available_connections(self,*args):
+    connections = self.db_conn_session.query(self.Connections_Tbl).order_by(self.Connections_Tbl.id)
+    self.connections_available = {0:{'id':0,'type':0,'desc':"","count":0}}
+    d = {}
+    count = 1
+    for con in connections:
+        d['id'] = con.id
+        d['type'] = con.connection_type
+        d['desc'] = con.description
+        d['count'] = count
+        self.connections_available[int(con.id)] = d
+        d = {}
+        count += 1
+
+  def get_available_tags(self,c_id,*args):
+    tags = self.db_conn_session.query(self.Tags_Tbl).filter(self.Tags_Tbl.connection_id == int(c_id)).order_by(self.Tags_Tbl.id)
+    self.tags_available = {0:{'id':0,'type':0,'desc':"","count":0}}
+    d = {}
+    count = 1
+    for tag in tags:
+        d['id'] = tag.id
+        d['c_id'] = tag.connection_id
+        d['desc'] = tag.description
+        d['datatype'] = tag.datatype
+        d['count'] = count
+        self.tags_available[int(tag.id)] = d
+        d = {}
+        count += 1
+  
 
 class PointSettingsPopup(BaseSettingsPopoup):
 
@@ -299,7 +694,7 @@ class ConnectionSettingsPopup(BaseSettingsPopoup):
 class ValueEnter(Gtk.Dialog):
   #Need to add check for value exceeding min,max range based on type
   def __init__(self, parent,obj,params):
-    super().__init__(transient_for = parent,flags=0) 
+    super().__init__(flags=0) 
 
     self.widget_obj = obj
     self.first_key_pressed = False #the user hasn't typed anything yet
@@ -308,6 +703,7 @@ class ValueEnter(Gtk.Dialog):
     self.max = params['max']  #maximum value acceptable
     self.num_polarity = params['polarity']#whether value can be +/-
     self.num_type = params['type']  #whether number is int or float
+    self.initial_value = 0
     self.set_default_size(600, 400)
     self.set_border_width(10)
     sc = self.get_style_context()
@@ -357,6 +753,7 @@ class ValueEnter(Gtk.Dialog):
         value = self.num_type(self.widget_obj.get_label())
       if isinstance(self.widget_obj, Gtk.Entry):
         value = self.num_type(self.widget_obj.get_text())
+      self.initial_value = value
     except ValueError:
       value = 0
 
@@ -515,11 +912,56 @@ class ValueEnter(Gtk.Dialog):
     try:
       if isinstance(self.widget_obj, Gtk.Label):
         self.widget_obj.set_label((self.val_label.get_text()))
+        value = self.val_label.get_text()
       if isinstance(self.widget_obj, Gtk.Entry):
         self.widget_obj.set_text(str(self.val_label.get_text()))
+        value = self.val_label.get_text()
+      else:
+        value = 0
     except ValueError:
+      value = 0
       pass
     self.destroy()
+    if str(self.initial_value) != str(value):
+      pass
+    else:
+      pass
 
   def close_popup(self, button):
     self.destroy()
+
+
+class PopupConfirm(Gtk.Dialog):
+  def __init__(self, parent, msg='Do you really want to do this?'):
+      Gtk.Dialog.__init__(self, "Confirm?", parent, Gtk.DialogFlags.MODAL,
+                          (Gtk.STOCK_YES, Gtk.ResponseType.YES,
+                            Gtk.STOCK_NO, Gtk.ResponseType.NO)
+                          )
+      self.set_default_size(300, 200)
+      self.set_border_width(10)
+      sc = self.get_style_context()
+      sc.add_class("dialog-border")
+      self.set_keep_above(True)
+      self.set_decorated(False)
+      box = Gtk.Box()
+      box.set_spacing(10)
+      box.set_orientation(Gtk.Orientation.VERTICAL)
+      c = self.get_content_area()
+      c.add(box)
+      box.pack_start(Gtk.Image(stock=Gtk.STOCK_DIALOG_WARNING), 0, 0, 0)
+      confirm_msg = Gtk.Label(msg + '\n\n')
+      sc = confirm_msg.get_style_context()
+      sc.add_class('borderless-num-display')
+      sc.add_class('text-black-color')
+      sc.add_class('font-20')
+      box.pack_start(confirm_msg, 0, 0, 0)
+      sep = Gtk.Label(height_request=3)
+      c.pack_start(sep,1,1,1)
+      self.show_all()
+      #Add style to dialog buttons
+      a = self.get_action_area()
+      b = a.get_children()
+      for but in b:
+        sc = but.get_style_context()
+        sc.add_class("dialog-buttons")
+        sc.add_class("font-16")

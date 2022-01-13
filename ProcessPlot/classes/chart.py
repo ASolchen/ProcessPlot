@@ -64,6 +64,11 @@ class Chart(Gtk.GLArea):
     self.db_id = db_id # None means it's new and isn't to be looked up in the db, if saved, gets an id.
     self.db_model = app.settings_db.models['chart']
     self.db_session = app.settings_db.session
+
+    self.db_pen_session = app.settings_db.session
+    self.db_pen_model = app.settings_db.models['pen']
+    self.Pen_Settings_Tbl = self.db_pen_model
+
     #settings
     self.pens = {1: Pen(self, 1,point_id="3cbb1b41-0b52-495b-83da-26232d692d81")}
     self.is_running = True
@@ -75,6 +80,7 @@ class Chart(Gtk.GLArea):
     #settings
     self.init_time_base()
     self.load_settings()
+    self.load_pen_settings()
     self.context_realized = False
     self.context = None
     self.shaders = None
@@ -108,6 +114,7 @@ class Chart(Gtk.GLArea):
       self.render()
   
   def load_settings(self):
+    #loading chart settings
     if not self.db_id:
       return
     tbl = self.db_model
@@ -116,9 +123,19 @@ class Chart(Gtk.GLArea):
       self.bg_color = json.loads(settings.bg_color) #rgb in json
       self.h_grids = settings.h_grids
       self.v_grids = settings.v_grids
-    # add fake pen for testing, this should be looked up in db
-    self.pens["pen_id"] = Pen(self, "pen_id", point_id="data_point_id")
     
+  def load_pen_settings(self):
+    ##### chart number ----- self.db_id
+    #loading pen settings
+    if not self.db_id:
+      return
+    #separate pen settings based on chart number
+    settings = self.db_session.query(self.Pen_Settings_Tbl).filter(self.Pen_Settings_Tbl.chart_id == self.db_id).order_by(self.Pen_Settings_Tbl.id) # find one with this id
+    if settings:
+      for params in settings:
+        self.pens[params.id] = Pen(self,params)
+  
+
   def save_settings(self):
     tbl = self.db_model
     entry = None
@@ -163,13 +180,18 @@ class Chart(Gtk.GLArea):
   def toggle_running(self, *args):
     self.is_running = not self.is_running
 
+  def add_pen(self,pen_id,*args):
+    params = self.db_session.query(self.Pen_Settings_Tbl).filter(self.Pen_Settings_Tbl.id == pen_id).first # find one with this id
+    self.pens[pen_id] = Pen(self,params)
+
+  def delete_pen(self,pen_id,*args):
+    del self.pens[pen_id]
+
   def get_data(self, *args):
     if self.vaos:
       for p in self.pens:
         self.pens[p].get_data()
     return True
-    
-
 
 
 class ChartEventBox(Gtk.EventBox):
@@ -191,7 +213,6 @@ class ChartEventBox(Gtk.EventBox):
     self.chart.toggle_running()
     #self.__log.info(f'Event window clicked: args: {args}')
     
-
 class ChartDebugBox(Gtk.Fixed):
   """shows chart debug info"""
   __log = logging.getLogger("ProcessPlot.classes.Chart")
@@ -220,7 +241,6 @@ class ChartDebugBox(Gtk.Fixed):
     self.labels["last_event"].set_property("label", f"Last Event: {self.eventbox.last_event}")
     return True
 
-
 class ChartControls(Gtk.Box):
   """holds chart control buttons"""
   __log = logging.getLogger("ProcessPlot.classes.Chart")
@@ -243,12 +263,6 @@ class ChartControls(Gtk.Box):
       sc = play_button.get_style_context()
       sc.add_class('ctrl-button')
       play_button.connect('clicked', chart.toggle_running)
-
-
-
-
-
-
       button_row = Gtk.Box()
       for widget in [
         (Gtk.Box(),1,1,1),
@@ -272,6 +286,8 @@ class ChartBox(Gtk.Overlay):
     super().__init__()
     self.app = app
     self.chart = Chart(self.app, chart_id)
+    self.app.charts[chart_id] = self.chart  #As charts are created add reference to them up on APP
+    self.app.charts_number +=1
     self.eventbox = ChartEventBox(self.chart)
     self.add(self.eventbox)
     self.add_overlay(ChartControls(self.chart))
@@ -280,7 +296,6 @@ class ChartBox(Gtk.Overlay):
       debug = ChartDebugBox(self)
       self.add_overlay(debug)
       self.set_overlay_pass_through(debug, True) # allow inputs to pass through this widget
-
 
 class ChartArea(Gtk.Box):
   __log = logging.getLogger("ProcessPlot.classes.ChartArea")
@@ -297,8 +312,14 @@ class ChartArea(Gtk.Box):
     self.db_session = app.settings_db.session
     self.load_settings()
     self.save_settings()
+  
+  def build_hidden_charts(self):
+    #This allows pens to be saved to hidden charts
+    for chrt in range(self.charts,16):
+      ChartBox(self.app, chrt+1)
 
   def build_charts(self):
+    #self.app.charts = {} # When charts are rebuilt then clear dictionary holding reference
     for child in self.get_children():
       self.remove(child)
     if self.charts == 2:
@@ -320,6 +341,7 @@ class ChartArea(Gtk.Box):
       v_pane.pack2(bot_pane,1,1)
       self.pack_start(v_pane,1,1,1)
       self.show_all()
+      self.build_hidden_charts()
       return
     if self.charts == 8:
       topl_pane = Gtk.Paned(wide_handle=True)
@@ -345,6 +367,7 @@ class ChartArea(Gtk.Box):
       v_pane.pack2(bot_pane,1,1)
       self.pack_start(v_pane,1,1,1)
       self.show_all()
+      self.build_hidden_charts()
       return
     if self.charts == 16:
       r1_left_pane = Gtk.Paned(wide_handle=True)
@@ -395,10 +418,12 @@ class ChartArea(Gtk.Box):
       v_pane.pack2(r3_r4_pane,1,1)
       self.pack_start(v_pane,1,1,1)
       self.show_all()
+      self.build_hidden_charts()
       return
     #default
     self.pack_start(ChartBox(self.app, 1),1,1,1)
     self.show_all()
+    self.build_hidden_charts()
     #self.__log.info(f"ChartArea built - {self}")
   
   def load_settings(self):

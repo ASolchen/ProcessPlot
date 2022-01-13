@@ -84,8 +84,10 @@ class MainWindow(Gtk.Window):
       settings.dark_mode = self.dark_mode
       settings.charts = self.numCharts
       settings.headless = self.headless_mode
+      settings.screen_width = self.screen_width
+      settings.screen_height = self.screen_height
     else:
-      self.db_session.add(Tbl(dark_mode=self.dark_mode, charts=self.numCharts))
+      self.db_session.add(Tbl(dark_mode=self.dark_mode, charts=self.numCharts, headless = self.headless_mode,screen_height = self.screen_height, screen_width = self.screen_width  ))
     self.db_session.commit()
 
   
@@ -129,6 +131,7 @@ class MainWindow(Gtk.Window):
     self.update_settings()
 
   def update_number_of_charts(self,val):
+    self.app.charts_number = 0
     self.chart_panel.charts = val
     self.chart_panel.build_charts()
     self.save_settings()
