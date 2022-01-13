@@ -1,7 +1,7 @@
 import logging, os, time
 from classes.data_manager import DataManager
 from classes.ui import MainWindow
-from classes.database import DataDb, SettingsDb
+from classes.database import DataDb, SettingsDb, ConnectionsDb
 from classes.ui import MainWindow
 
 PUBLIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),  'Public')
@@ -12,7 +12,19 @@ class App(object):
     self.data_db = DataDb()
     self.data_manager = DataManager(self)
     self.settings_db = SettingsDb()
+    self.connections_db = ConnectionsDb()
     has_ui = True
+    self.charts = {}
+    self.charts_number = 0
+    self.connection_type_enum ={
+      1: "Local",
+      2: "ModbusTCP_Connection",
+      3: "ModbusRTU_Connection",
+      4: "EthernetIP_Connection",
+      5: "ADS_Connection",
+      6: "Grbl_Connection",
+      7: "OPCUA_Connection",
+    }
     if has_ui:
       # build the UI and run the Gtk main loop
       self.main_window = MainWindow(self)

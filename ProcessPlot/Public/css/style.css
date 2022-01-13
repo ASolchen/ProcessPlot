@@ -38,6 +38,10 @@
   transition: all 0.3s ease 0s;
 }
 
+:hover{
+  opacity: 0.80;
+}
+
 .dialog-border{
   background-image: linear-gradient( lightgray, gray);
   border-width: 4px;
