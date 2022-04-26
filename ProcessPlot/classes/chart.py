@@ -28,14 +28,29 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GObject, Gdk, GdkPixbuf, Gio
 from OpenGL.GL import *
 from OpenGL.GL import shaders
-from classes.shaders import BasicVertShader, BasicFragShader, PenVertShader
 from classes.pen import Pen
-import json
+import json, ast
+from classes.popup import ChartSettingsPopup
 
 __all__ = ['Chart']
 PUBLIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),  'Public')
 
+FRAG_SHADER ='''#version 150
+    in vec4 color;
+    out vec4 fColor;
 
+    void main () {
+      fColor = color;
+    }'''
+
+VERT_SHADER='''#version  150
+in vec2 vert;
+in vec4 in_color;
+out vec4 color;
+void main () {
+  color = in_color;
+  gl_Position = vec4(vert, -.99f, 1.0f);
+}'''
 
 
 class Shaders(GObject.Object):
@@ -47,11 +62,9 @@ class Shaders(GObject.Object):
 
 
   def compile_shaders(self):
-    vert_shader = shaders.compileShader(BasicVertShader, GL_VERTEX_SHADER)
-    frag_shader = shaders.compileShader(BasicFragShader, GL_FRAGMENT_SHADER)
+    vert_shader = shaders.compileShader(VERT_SHADER, GL_VERTEX_SHADER)
+    frag_shader = shaders.compileShader(FRAG_SHADER, GL_FRAGMENT_SHADER)
     self.overlay_shader_prog = shaders.compileProgram(vert_shader, frag_shader)
-    pen_vert_shader = shaders.compileShader(PenVertShader, GL_VERTEX_SHADER)
-    self.pen_shader = shaders.compileProgram(pen_vert_shader, frag_shader)
     
 
 
@@ -70,15 +83,19 @@ class Chart(Gtk.GLArea):
     self.Pen_Settings_Tbl = self.db_pen_model
 
     #settings
-    self.pens = {1: Pen(self, 1,point_id="3cbb1b41-0b52-495b-83da-26232d692d81")}
+    self.pens = {}
     self.is_running = True
     self.end_time = time.time()
-    self.span = 1000000.0
-    self.bg_color = (0.1, 0.1, 0.1, 1.0)
-    self.h_grids = 0
-    self.v_grids = 0
+    self.span = 100.0
+    self.bg_color = [0.1,0.1,0.1,1.0] #default to dark gray
+    self.grid_color = [1.0,1.0,1.0,1.0] #default to white
+    self.h_grids = 2
+    self.v_grids = 2
+    self.marker1_color = [1.0,0.0,0.0,1.0] #default to red
+    self.marker2_color = [0.0,1.0,0.0,1.0] #default to blue
+    self.marker1_width = 1
+    self.marker2_width = 1
     #settings
-    self.init_time_base()
     self.load_settings()
     self.load_pen_settings()
     self.context_realized = False
@@ -88,10 +105,7 @@ class Chart(Gtk.GLArea):
     self.connect("realize", self.on_realize)
     self.connect("render", self.on_render)
     GObject.timeout_add(100, self.trigger_render)
-    GObject.timeout_add(1000, self.get_data)
 
-  def init_time_base(self):
-    self.time_base_point = self.end_time - (0.5*self.span) # all OpenGL X vals (time) reference this point, move this on any buffer flushing (zoom, or big time move)
 
   def on_realize(self, area):
     self.context_realized = True
@@ -105,8 +119,8 @@ class Chart(Gtk.GLArea):
       self.context = ctx
       try:
         self.shaders = Shaders()
-      except RuntimeError as e:
-        self.__log.error(f'OpenGL Error - {e}')
+      except RuntimeError:
+        print('OpenGL Error - Data logging only')
         self.shaders = None
       if self.shaders:
         self.init_vaos()
@@ -123,6 +137,29 @@ class Chart(Gtk.GLArea):
       self.bg_color = json.loads(settings.bg_color) #rgb in json
       self.h_grids = settings.h_grids
       self.v_grids = settings.v_grids
+      self.grid_color = json.loads(settings.grid_color) #rgb in json
+      self.marker1_width = settings.marker1_width
+      self.marker1_color = json.loads(settings.marker1_color) #rgb in json
+      self.marker2_width = settings.marker2_width
+      self.marker2_color = json.loads(settings.marker2_color) #rgb in json
+    else:
+      #create chart settings in db if they don't exist
+      new = tbl(id = self.db_id)
+      self.db_session.add(new)
+      self.db_session.commit()    
+      self.db_session.refresh(new)  #Retrieves newly created chart settings from the database (new.id)
+
+      self.bg_color = json.loads(new.bg_color) #rgb in json
+      self.h_grids = new.h_grids
+      self.v_grids = new.v_grids
+      self.grid_color = json.loads(new.grid_color) #rgb in json
+      self.marker1_width = new.marker1_width
+      self.marker1_color = json.loads(new.marker1_color) #rgb in json
+      self.marker2_width = new.marker2_width
+      self.marker2_color = json.loads(new.marker2_color) #rgb in json
+
+  def reload_chart(self):
+    self.load_settings()
     
   def load_pen_settings(self):
     ##### chart number ----- self.db_id
@@ -135,7 +172,6 @@ class Chart(Gtk.GLArea):
       for params in settings:
         self.pens[params.id] = Pen(self,params)
   
-
   def save_settings(self):
     tbl = self.db_model
     entry = None
@@ -145,11 +181,21 @@ class Chart(Gtk.GLArea):
       entry.bg_color = json.dumps(self.bg_color)
       entry.h_grids= self.h_grids
       entry.v_grids=self.v_grids
+      entry.grid_color = json.dumps(self.grid_color)
+      entry.marker1_width=self.marker1_width
+      entry.marker1_color = json.dumps(self.marker1_color)
+      entry.marker2_width=self.marker2_width
+      entry.marker2_color = json.dumps(self.marker2_color)
     else: #create it
       entry = tbl(
         bg_color = json.dumps(self.bg_color),
         h_grids= self.h_grids,
-        v_grids=self.v_grids
+        v_grids=self.v_grids,
+        grid_color = json.dumps(self.grid_color),
+        marker1_width=self.marker1_width,
+        marker1_color = json.dumps(self.marker1_color),
+        marker2_width=self.marker2_width,
+        marker2_color = json.dumps(self.marker2_color),
       )
       self.db_session.add(entry)
     # or 
@@ -167,8 +213,6 @@ class Chart(Gtk.GLArea):
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    for p in self.pens:
-      self.pens[p].render()
     glFlush()
 
   def trigger_render(self, *args):
@@ -186,12 +230,6 @@ class Chart(Gtk.GLArea):
 
   def delete_pen(self,pen_id,*args):
     del self.pens[pen_id]
-
-  def get_data(self, *args):
-    if self.vaos:
-      for p in self.pens:
-        self.pens[p].get_data()
-    return True
 
 
 class ChartEventBox(Gtk.EventBox):
@@ -245,13 +283,13 @@ class ChartControls(Gtk.Box):
   """holds chart control buttons"""
   __log = logging.getLogger("ProcessPlot.classes.Chart")
   
-  def __init__(self, chart) -> None:
+  def __init__(self, chart,app) -> None:
       super().__init__(orientation=Gtk.Orientation.VERTICAL)
-      self.app = chart.app
+      self.app = app
       self.chart = chart
       settings_button = Gtk.Button(width_request = 30)
-      #settings_button.connect('clicked', )
-      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR,'images/settings.png'), 20, -1, True)
+      settings_button.connect('clicked',self.open_chart_settings)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR,'images/settings.png'), 30, -1, True)
       image = Gtk.Image(pixbuf=p_buf)
       settings_button.add(image)
       sc = settings_button.get_style_context()
@@ -277,7 +315,15 @@ class ChartControls(Gtk.Box):
         (button_row,0,0,1),
       ]:
         self.pack_start(*widget_row)
-
+      
+  def open_chart_settings(self,*args):
+    popup = ChartSettingsPopup(self.app,self.chart)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
 
 class ChartBox(Gtk.Overlay):
   """Use to put overlay and eventbox on the chart"""
@@ -290,7 +336,7 @@ class ChartBox(Gtk.Overlay):
     self.app.charts_number +=1
     self.eventbox = ChartEventBox(self.chart)
     self.add(self.eventbox)
-    self.add_overlay(ChartControls(self.chart))
+    self.add_overlay(ChartControls(self.chart,self.app))
     # if debugging, add debug info to charts
     if logging.getLogger("ProcessPlot.classes.Chart").getEffectiveLevel() <= logging.DEBUG:
       debug = ChartDebugBox(self)

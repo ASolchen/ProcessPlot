@@ -4,10 +4,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import declarative_base, relationship, backref
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
-from sqlalchemy.sql.sqltypes import Float, Numeric
+from sqlalchemy.sql.schema import ForeignKey
+from sqlalchemy.sql.sqltypes import BIGINT, Float, Numeric
 
 
-# see videos below for help:
+# see videosbelow for help:
 # https://www.youtube.com/watch?v=jaKMm9njcJc&list=PL4iRawDSyRvVd1V7A45YtAGzDk6ljVPm1
 
 
@@ -43,16 +44,21 @@ class ChartLayoutSettings(SettingsBase):
 class ChartSettings(SettingsBase):
     __tablename__ = 'chart_settings'
     id = Column(Integer, primary_key=True)
-    bg_color = Column(String) #rgb in json
-    h_grids = Column(Integer)
-    v_grids = Column(Integer)
+    bg_color = Column(String, default = '[1.0,1.0,1.0,1.0]') #rgb in json
+    h_grids = Column(Integer, default = 3)
+    v_grids = Column(Integer, default = 3)
+    grid_color = Column(String, default = '[0.0,0.0,0.0,1.0]') #rgb in json
+    marker1_width = Column(Integer, default = 1)
+    marker1_color = Column(String, default = '[0.0,1.0,0.0,1.0]') #rgb in json    
+    marker2_width = Column(Integer, default = 1)
+    marker2_color = Column(String, default = '[1.0,0.0,0.0,1.0]') #rgb in json
     #other cols
 
 class PenSettings(SettingsBase):
     __tablename__ = 'pen_settings'
     id = Column(Integer, primary_key=True)
     chart_id = Column(Integer,default=1)
-    connection_id = Column(Integer)
+    connection_id = Column(String)
     tag_id = Column(Integer)
     visible = Column(Boolean,default=1)
     color = Column(String, default = '#0000ff') #rgb in json
@@ -63,16 +69,6 @@ class PenSettings(SettingsBase):
     scale_auto = Column(Boolean,default=0)
     #other cols
 
-
-DataBase = declarative_base()
-class Values(DataBase):
-    __tablename__ = 'values'
-    id = Column(Integer, primary_key=True)
-    point_id = Column(Integer)
-    timestamp = Column(Numeric)
-    value = Column(Numeric)
-
-    
 class SettingsDb():
     __log = logging.getLogger("ProcessPlot.classes.database")
     def __init__(self) -> None:
@@ -127,7 +123,7 @@ ConnectionsBase = declarative_base()
 
 class ConnectionTable(ConnectionsBase): # this table holds all tag values being subscribed to
   __tablename__ = 'connections'
-  id = Column(String, primary_key=True)
+  id = Column(Integer, primary_key=True)
   connection_type = Column(Integer, nullable=False)
   description = Column(String)
 
