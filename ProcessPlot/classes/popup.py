@@ -20,11 +20,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+from enum import auto
+from http.client import PARTIAL_CONTENT
 from logging.config import valid_ident
 from pkgutil import iter_modules
 
 from urllib.parse import non_hierarchical
-import gi, os, json
+import gi, os, json, datetime, time
+
+from pycomm3 import parse_connection_path
 
 from ProcessLink.process_link import process_link
 from numpy import maximum, nonzero
@@ -41,12 +45,7 @@ class BaseSettingsPopoup(Gtk.Dialog):
   def __init__(self, parent, title,app):
     super().__init__(title=title, transient_for = parent,flags=0) 
     self.app = app
-    self.set_default_size(1500, 700)
-    self.set_decorated(False)
-    self.set_border_width(10)
-    self.set_keep_above(False)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
+    self.build_window()
     self.content_area = self.get_content_area()
 
     self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
@@ -76,6 +75,14 @@ class BaseSettingsPopoup(Gtk.Dialog):
     self.build_base()
     self.build_footer()
     self.show_all()
+  
+  def build_window(self, *args):
+    self.set_default_size(1500, 700)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
 
   def add_style(self, item,style):
     sc = item.get_style_context()
@@ -108,8 +115,14 @@ class BaseSettingsPopoup(Gtk.Dialog):
   def build_footer(self):
     pass
 
-#build calendar picker, chart settings popup, time window / range to display,
-#build popup for chart settings
+################################ change styling of connect toggle button , add connect to conx database
+################################ create import/export popups
+################################ When deleting a connection the row stays in the connection specific table
+################################ Create import export tags to excel button
+################################ Need to update connection toggle buttons on regular basis and when building page
+################################ Still need to create ledgend on popout
+################################ Add duplicate button on tag settings popup
+################################ Need a button for connections to open connect and one for connect all
 
 class PenSettingsPopup(BaseSettingsPopoup):
 
@@ -183,23 +196,55 @@ class PenSettingsPopup(BaseSettingsPopoup):
     self.add_column_names()
     self.add_pen_rows(self.chart_filter)
     self.show_all()
-  
+
   def build_footer(self):
-    self.ok_button = Gtk.Button(width_request = 100)
-    self.ok_button.connect('clicked',self.saveall_pen_rows)
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     box = Gtk.Box()
     lbl = Gtk.Label('OK')
     sc = lbl.get_style_context()
-    sc.add_class('font-14')
-    sc.add_class('font-bold')
+    sc.add_class('font-16')
     box.pack_start(lbl,1,1,1)
-    box.pack_start(image,0,0,0)
+    #box.pack_start(image,0,0,0)
     self.ok_button.add(box)
     self.footer_bar.pack_end(self.ok_button,0,0,1)
     sc = self.ok_button.get_style_context()
-    sc.add_class('ctrl-button')
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
   def filter_disp_chart(self,chart_filter,*args):
     temp = chart_filter.get_active_text()
@@ -315,7 +360,7 @@ class PenSettingsPopup(BaseSettingsPopoup):
     else:
       del self.unsaved_pen_rows[id]
 
-  def saveall_pen_rows(self,*args):
+  def save_settings(self,*args):
     #when clicking ok button, save all unsaved settings, clear unsaved dictionary, and close popup
     for key,pen_row in self.unsaved_pen_rows.items():
       pen_row.update_db()
@@ -449,7 +494,7 @@ class Pen_row(object):
     but.add(self.line_width)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.line_width,{'min':0,'max':16,'type':int,'polarity':False})
+    but.connect('clicked',self.open_numpad,self.line_width,{'min':0,'max':16,'type':int,'polarity':False,'name':'Line Width'})
     self.pen_grid.attach(but,5,self.pen_row_num,1,1)
     but.connect('clicked',self.row_changed)
 
@@ -462,7 +507,7 @@ class Pen_row(object):
     but.add(self.scale_minimum)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.scale_minimum,{'min':-32768,'max':32768,'type':float,'polarity':True})
+    but.connect('clicked',self.open_numpad,self.scale_minimum,{'min':-32768,'max':32768,'type':float,'polarity':True,'name':'Scale Minimum'})
     self.pen_grid.attach(but,6,self.pen_row_num,1,1)
     but.connect('clicked',self.row_changed)
 
@@ -476,7 +521,7 @@ class Pen_row(object):
     but.add(self.scale_maximum)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.scale_maximum,{'min':-32768,'max':32768,'type':float,'polarity':True})
+    but.connect('clicked',self.open_numpad,self.scale_maximum,{'min':-32768,'max':32768,'type':float,'polarity':True,'name':'Scale Maximum'})
     self.pen_grid.attach(but,7,self.pen_row_num,1,1)
     but.connect('clicked',self.row_changed)
 
@@ -661,7 +706,6 @@ class Pen_row(object):
 
 
 class TagMainPopup(Gtk.Dialog):
-##################################TRY TO CUT AND PASTE FROM EXCEL INTO TAG SPREADSHEET
   def __init__(self, parent,app):
     super().__init__(transient_for = parent,flags=0) 
     self.unsaved_changes_present = False
@@ -669,12 +713,7 @@ class TagMainPopup(Gtk.Dialog):
     self.tags_available = {}
     self.connections_available = {}
     self.app = app
-    self.set_default_size(1050, 800)
-    self.set_decorated(False)
-    self.set_border_width(10)
-    self.set_keep_above(False)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
+    self.build_window()
     self.content_area = self.get_content_area()
     self.get_available_tags('c_id')
     self.get_available_connections()
@@ -708,6 +747,14 @@ class TagMainPopup(Gtk.Dialog):
     self.build_footer()
     self.show_all()
 
+  def build_window(self, *args):
+    self.set_default_size(1050, 800)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
   def build_header(self,title):
     #header
     self.tag_sort = Gtk.ComboBoxText()
@@ -727,6 +774,23 @@ class TagMainPopup(Gtk.Dialog):
     sc.add_class('ctrl-button')
     self.title_bar.pack_start(self.add_button2,0,0,0)
     self.add_button2.connect('clicked',self.add_tag_popup,None,self.connections_available)
+
+    tag_import = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Import.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    tag_import.add(image)
+    sc = tag_import.get_style_context()
+    sc.add_class('ctrl-button')
+    self.title_bar.pack_start(tag_import,0,0,0)
+    #tag_import.connect('clicked',self.add_tag_popup,None,self.connections_available)
+    tag_export = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Export.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    tag_export.add(image)
+    sc = tag_export.get_style_context()
+    sc.add_class('ctrl-button')
+    self.title_bar.pack_start(tag_export,0,0,0)
+    #tag_export.connect('clicked',self.add_tag_popup,None,self.connections_available)
 
     title = Gtk.Label(label=title,width_request = 500)
     sc = title.get_style_context()
@@ -751,7 +815,6 @@ class TagMainPopup(Gtk.Dialog):
     self.treeview.connect('button-press-event' , self.tree_item_clicked)
     self.treeview.set_rules_hint( True )
     self.add_style(self.treeview,['treeview'])
-    #self.treeview.set_property('even-row-color','#dddddd')
 
     #Generate Columns
     columns = {0:{'name':'','cell':Gtk.CellRendererPixbuf(),'width':30,'expand':False,'type':'pixbuf'},
@@ -865,21 +928,53 @@ class TagMainPopup(Gtk.Dialog):
     tree_model, tree_iter = selection.get_selected()
 
   def build_footer(self):
-    self.ok_button = Gtk.Button(width_request = 100)
-    self.ok_button.connect('clicked',self.close_popup)
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     box = Gtk.Box()
     lbl = Gtk.Label('OK')
     sc = lbl.get_style_context()
-    sc.add_class('font-14')
-    sc.add_class('font-bold')
+    sc.add_class('font-16')
     box.pack_start(lbl,1,1,1)
-    box.pack_start(image,0,0,0)
+    #box.pack_start(image,0,0,0)
     self.ok_button.add(box)
-    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    #self.footer_bar.pack_end(self.ok_button,0,0,1)
     sc = self.ok_button.get_style_context()
-    sc.add_class('ctrl-button')
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
   def add_tag_rows(self,filter,*args):
     tag_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Tag.png', 25, 25)
@@ -932,7 +1027,7 @@ class TagMainPopup(Gtk.Dialog):
     self.listbox.add(l_row)
 
   def get_available_tags(self,c_id,*args):
-    self.tags_available = {}
+    #self.tags_available = {}
     new_params = {}
     count = 1
     self.conx_tags = {}
@@ -988,12 +1083,12 @@ class TagMainPopup(Gtk.Dialog):
       return False
 
   def add_tag_popup(self,button,duplicate_name_params,*args):
-    popup = AddTagPopup(self,duplicate_name_params,self.connections_available)
+    popup = AddTagPopup(self,duplicate_name_params,self.app,self.connections_available)
     response = popup.run()
     popup.destroy()
     if response == Gtk.ResponseType.YES:
-      results = (popup.get_result())
-      self.check_duplicate_name(results)
+      #results = (popup.get_result())
+      #self.check_duplicate_name(results)
       return True
     else:
       return False
@@ -1022,17 +1117,18 @@ class TagMainPopup(Gtk.Dialog):
       self.create_tag(results)
       self.open_settings_popup(results['id'],results['connection_id'])
 
+  def save_settings(self,button,auto_close,*args):
+    pass
+
   def open_settings_popup(self,tag_id,conx_id,*args):
     params = self.get_tag_params(tag_id,conx_id)
-    popup = TagSettingsPopup(self,params)
+    popup = TagSettingsPopup(self,params,self.app)
     response = popup.run()
     popup.destroy()
-    if response == Gtk.ResponseType.YES:
-      results = (popup.get_result())
-      self.update_tag(results)
-      return True
-    else:
-      return False
+    self.remove_all_rows()
+    self.get_available_tags('c_id')
+    self.add_tag_rows(self.tag_filter_val)
+    self.show_all()
 
   def create_tag(self,params,*args):
     #sNEED TO HAVE IT PASS IN SOMEThing FOR THE ADDRESS EXCEPT 12
@@ -1041,7 +1137,7 @@ class TagMainPopup(Gtk.Dialog):
                             "connection_id": params['connection_id'],
                             "description": params['description'],
                             "datatype": params['datatype'],
-                            "address": 12
+                            "address": '12'
     })
     tag_obj = conx_obj.get('tags').get(params['id'])
     if tag_obj != None:
@@ -1055,7 +1151,7 @@ class TagMainPopup(Gtk.Dialog):
       tag_obj = conx_obj.get('tags').get(params['id'])
       if tag_obj != None:
         for key, val in params.items():
-          if key == 'id' or key == 'description' or key == 'connection_id' or val == None:
+          if key == 'id' or key == 'connection_id' or val == None:
             pass
           else:
             try:
@@ -1086,105 +1182,216 @@ class TagMainPopup(Gtk.Dialog):
 
 
 class AddTagPopup(Gtk.Dialog):
-  def __init__(self, parent,params,conx_type):
+  def __init__(self, parent,params,app,conx_type):
     Gtk.Dialog.__init__(self, '',parent, Gtk.DialogFlags.MODAL,
-                        (Gtk.STOCK_SAVE, Gtk.ResponseType.YES,
-                          Gtk.STOCK_CANCEL, Gtk.ResponseType.NO)
+                        ()
                         )
+    self.parent = parent
+    self.app = app
     self.params = params
     self.conx_type = conx_type
     self.datatypes = ['INT','FLOAT','DINT','UINT','BOOLEAN','SINT']
-    self.set_default_size(200, 150)
-    self.set_border_width(10)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
-    self.set_keep_above(True)
-    self.set_decorated(False)
+    self.build_window()
     self.connect("response", self.on_response)
-    self.content_area = self.get_content_area()
     self.result = {}
 
+    self.content_area = self.get_content_area()
     self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window )
+    ### - Title Bar- ###
     self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
 
-    #header
+    ### - Base Area- ###
+    self.grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
+    self.dialog_window.pack_start(self.grid,1,1,1)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+    self.load_settings()
+    self.build_header()
+    self.build_base()
+    self.build_footer()
+    if self.params:
+      self.reload_popup(self.params)
+    self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(200, 150)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(True)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
+  def build_header(self,*args):
+    #Save Button
+    self.save_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.save_button.add(image)
+    sc = self.save_button.get_style_context()
+    sc.add_class('ctrl-button')
+    bx = Gtk.Box()
+    bx.pack_end(self.save_button,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    self.save_button.connect('clicked',self.save_settings,False)
+
+    #title
     title = Gtk.Label(label='Create New Tag')
     sc = title.get_style_context()
     sc.add_class('text-black-color')
     sc.add_class('font-18')
     sc.add_class('font-bold')
     self.title_bar.pack_start(title,1,1,1)
-    self.pin_button = Gtk.Button(width_request = 20)
-    self.pin_button.connect('clicked',self.close_popup)
+
+    #exit button
+    self.exit_button = Gtk.Button(width_request = 20)
+    self.exit_button.connect('clicked',self.close_popup)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
-    self.pin_button.add(image)
-    self.title_bar.pack_end(self.pin_button,0,0,1)
-    sc = self.pin_button.get_style_context()
+    self.exit_button.add(image)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
+    sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    #self.dialog_window.pack_start(divider,0,0,1)
-    self.content_area.add(self.dialog_window )
-    self.build_base()
-    if self.params:
-      self.same_name(self.params)
-    self.show_all()
 
   def build_base(self,*args):
-    grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
     self.pop_lbl = Gtk.Label('')
     self.add_style(self.pop_lbl,['text-red-color','font-14','font-bold'])
-    grid.attach(self.pop_lbl,0,0,3,1)
-    self.dialog_window.pack_start(grid,1,1,1)
+    self.grid.attach(self.pop_lbl,0,0,3,1)
 
     #Tag name entry
     lbl = Gtk.Label('Tag Name')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,1,1,1) 
+    self.grid.attach(lbl,0,1,1,1) 
     self.tag_name = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
     self.tag_name.set_placeholder_text('Enter Tag Name')
     self.tag_name.set_alignment(0.5)
     self.add_style(self.tag_name,["entry","font-12"])
     self.tag_name.connect("notify::text-length", self.enable_new)
-    grid.attach(self.tag_name,1,1,2,1)    
+    self.grid.attach(self.tag_name,1,1,2,1)    
 
     #Connection Driver
     lbl = Gtk.Label('Connection Driver')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,2,1,1) 
+    self.grid.attach(lbl,0,2,1,1) 
     self.conx_driver = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
     self.add_style(self.conx_driver,["font-18","list-select","font-bold"])
     for conx in self.conx_type:
        self.conx_driver.append_text(self.conx_type[conx]['id'])
     self.conx_driver.set_active(0)
-    grid.attach(self.conx_driver,1,2,2,1)
+    self.grid.attach(self.conx_driver,1,2,2,1)
 
    #Tag description entry
     lbl = Gtk.Label('Tag Description')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,3,1,1) 
+    self.grid.attach(lbl,0,3,1,1) 
     self.tag_descr = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
     self.tag_descr.set_placeholder_text('Enter Tag Description')
     self.tag_descr.set_alignment(0.5)
     self.add_style(self.tag_descr,["entry","font-12"])
     self.tag_descr.connect("notify::text-length", self.enable_new)
-    grid.attach(self.tag_descr,1,3,2,1)
+    self.grid.attach(self.tag_descr,1,3,2,1)
 
     #Tag Datatype
     lbl = Gtk.Label('Tag Datatype')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,4,1,1) 
+    self.grid.attach(lbl,0,4,1,1) 
     self.tag_datatype = Gtk.ComboBoxText(width_request = 200,height_request = 30,halign = Gtk.Align.CENTER)#hexpand = True
     self.add_style(self.tag_datatype,["font-18","list-select","font-bold"])
     for dt in self.datatypes:
        self.tag_datatype.append_text(dt)
     self.tag_datatype.set_active(0)
-    grid.attach(self.tag_datatype,1,4,2,1)    
+    self.grid.attach(self.tag_datatype,1,4,2,1)    
     sep = Gtk.Label(height_request=3)
     self.dialog_window.pack_start(sep,1,1,1)
+
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+  def load_settings(self,*args):
+    pass
+
+  def save_settings(self,button,auto_close,*args):
+    ####Get Results
+    #{'id': '2', 'connection_type': 4, 'description': 'EthernetIP'}
+    self.result['id'] = self.tag_name.get_text ()
+    self.result['connection_id'] = self.conx_driver.get_active_text()
+    self.result['description'] = self.tag_descr.get_text ()
+    self.result['datatype'] = self.tag_datatype.get_active_text()
+    #####Check Results /Save
+    if self.result['id'] ==  '':
+      dup = True
+    else:
+      dup = False
+
+    conx_obj = self.app.link.get('connections').get(self.result['connection_id'])
+    if conx_obj != None:
+      for tag_id,tag_obj in conx_obj.get('tags').items():
+          if tag_id == self.result['id']:
+            dup = True
+    if dup:
+      self.reload_popup(self.result)
+      #self.add_tag_popup(None,self.result,self.connections_available)
+    else:
+      self.close_popup(False)
+      self.parent.create_tag(self.result)
+      self.parent.open_settings_popup(self.result['id'],self.result['connection_id'])
 
   def add_style(self, item,style):
     sc = item.get_style_context()
@@ -1211,7 +1418,7 @@ class AddTagPopup(Gtk.Dialog):
   def get_result(self):
     return self.result
   
-  def same_name(self,results):
+  def reload_popup(self,results):
     self.pop_lbl.set_label('Name Already Exists')
     self.tag_name.set_text('')
     val = 0
@@ -1230,26 +1437,64 @@ class AddTagPopup(Gtk.Dialog):
 
 
 class TagSettingsPopup(Gtk.Dialog):
-  def __init__(self, parent,params):
+  def __init__(self, parent,params,app):
     Gtk.Dialog.__init__(self, '',parent, Gtk.DialogFlags.MODAL,
-                        (Gtk.STOCK_SAVE, Gtk.ResponseType.YES)
+                        ()
                         )
     self.params = params
+    self.app = app
     self.datatypes = ['INT','FLOAT','DINT','UINT','BOOLEAN','SINT']
+    self.result = {}
+    self.build_window()
+
+    self.content_area = self.get_content_area()
+    self.dialog_window = Gtk.Box(width_request=500,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window)
+    ### -title bar- ####
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=800)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    ### - Base Area- ###
+    self.grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
+    self.dialog_window.pack_start(self.grid,1,1,1)
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=800)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+
+    self.build_header()
+    self.build_base()
+    self.build_footer()
+    self.show_all()
+
+  def build_window(self, *args):
     self.set_default_size(500, 400)
+    self.set_decorated(False)
     self.set_border_width(10)
+    self.set_keep_above(True)
     sc = self.get_style_context()
     sc.add_class("dialog-border")
-    self.set_keep_above(True)
-    self.set_decorated(False)
-    self.connect("response", self.on_response)
-    self.content_area = self.get_content_area()
-    self.result = {}
 
-    self.dialog_window = Gtk.Box(width_request=500,orientation=Gtk.Orientation.VERTICAL)
-    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=500)
+  def build_header(self):
+    #Save Button
+    self.save_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.save_button.add(image)
+    sc = self.save_button.get_style_context()
+    sc.add_class('ctrl-button')
+    bx = Gtk.Box()
+    bx.pack_end(self.save_button,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    self.save_button.connect('clicked',self.save_settings,False)
 
-    #header
+    #title
     tit = self.params['tag_type']
     title = Gtk.Label(label=f'{tit} - Tag')
     sc = title.get_style_context()
@@ -1257,57 +1502,51 @@ class TagSettingsPopup(Gtk.Dialog):
     sc.add_class('font-18')
     sc.add_class('font-bold')
     self.title_bar.pack_start(title,1,1,1)
-    self.pin_button = Gtk.Button(width_request = 20)
-    self.pin_button.connect('clicked',self.close_popup)
+
+    #exit button
+    self.exit_button = Gtk.Button(width_request = 20)
+    self.exit_button.connect('clicked',self.close_popup)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
-    self.pin_button.add(image)
-    #self.title_bar.pack_end(self.pin_button,0,0,1)
-    sc = self.pin_button.get_style_context()
+    self.exit_button.add(image)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
+    sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    self.dialog_window.pack_start(divider,0,0,1)
-    self.content_area.add(self.dialog_window )
-    self.build_base()
-    self.show_all()
 
   def build_base(self,*args):
     row = 0
-    grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
-    self.dialog_window.pack_start(grid,1,1,1)
 
     #Tag name entry
     lbl = Gtk.Label('Tag Name')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,row,1,1) 
+    self.grid.attach(lbl,0,row,1,1) 
     self.conx_name = Gtk.Label(width_request = 300,height_request = 30)
     self.conx_name.set_text(self.params['id'])
     self.conx_name.set_alignment(0.5,0.5)
     self.add_style(self.conx_name,["label","font-18","font-bold"])
     #self.conx_name.connect("notify::text-length", self.enable_new)
-    grid.attach(self.conx_name,1,row,2,1)   
+    self.grid.attach(self.conx_name,1,row,2,1)   
     row+=1 
 
     #Tag description entry
     lbl = Gtk.Label('Tag Description')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,row,1,1) 
-    self.conx_descr = Gtk.Label(width_request = 300,height_request = 30)
+    self.grid.attach(lbl,0,row,1,1) 
+    #self.conx_descr = Gtk.Label(width_request = 300,height_request = 30)
+    self.conx_descr = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
+    self.conx_descr.set_alignment(0.5)
+    #self.add_style(self.conx_descr,["label","font-18","font-bold"])
+    self.add_style(self.conx_descr,["entry","font-18","font-bold"])
     self.conx_descr.set_text(self.params['description'])
-    self.conx_descr.set_alignment(0.5,0.5)
-    self.add_style(self.conx_descr,["label","font-18","font-bold"])
     #self.conx_descr.connect("notify::text-length", self.enable_new)
-    grid.attach(self.conx_descr,1,row,2,1) 
+    self.grid.attach(self.conx_descr,1,row,2,1) 
     row+=1 
 
     #Tag Datatype
     db_dt = str(self.params['datatype'])
     lbl = Gtk.Label('Tag Datatype')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,row,1,1) 
+    self.grid.attach(lbl,0,row,1,1) 
     self.tag_datatype = Gtk.ComboBoxText(width_request = 200,height_request = 30,halign = Gtk.Align.CENTER)#hexpand = True
     self.add_style(self.tag_datatype,["font-18","list-select","font-bold"])
     found = None
@@ -1321,7 +1560,7 @@ class TagSettingsPopup(Gtk.Dialog):
       self.tag_datatype.set_active(found)
     else:
       self.tag_datatype.set_active(0)
-    grid.attach(self.tag_datatype,1,row,2,1)
+    self.grid.attach(self.tag_datatype,1,row,2,1)
     row+=1
 
     #Tag Address entry
@@ -1329,12 +1568,12 @@ class TagSettingsPopup(Gtk.Dialog):
       db_host = str(self.params['address'])
       lbl = Gtk.Label('Tag Address')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.tag_address = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
       self.tag_address.set_alignment(0.5)
       self.add_style(self.tag_address,["entry","font-18","font-bold"])
       self.tag_address.set_text(db_host)
-      grid.attach(self.tag_address,1,row,2,1)
+      self.grid.attach(self.tag_address,1,row,2,1)
       row+=1 
 
     #Bit
@@ -1342,7 +1581,7 @@ class TagSettingsPopup(Gtk.Dialog):
       db_tag_bit = str(self.params['baudrate'])
       lbl = Gtk.Label('Baudrate')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.tag_bit = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
       self.add_style(self.tag_bit,["font-18","list-select","font-bold"])
       br = None
@@ -1357,7 +1596,7 @@ class TagSettingsPopup(Gtk.Dialog):
         self.tag_bit.set_active(br)
       else:
         self.tag_bit.set_active(0)
-      grid.attach(self.tag_bit,1,row,2,1)
+      self.grid.attach(self.tag_bit,1,row,2,1)
       row+=1 
 
     #Word Swap
@@ -1365,14 +1604,14 @@ class TagSettingsPopup(Gtk.Dialog):
       db_word_swapped = str(self.params['word_swapped'])
       lbl = Gtk.Label('Word Swapped')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       bx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, halign = Gtk.Align.CENTER)
       p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
       image = Gtk.Image(pixbuf=p_buf)
       wid =CheckBoxWidget(30,30,image,db_word_swapped)
       self.word_swapped = wid.return_self()
       bx.pack_start(self.word_swapped,0,0,0)
-      grid.attach(bx,1,row,2,1)
+      self.grid.attach(bx,1,row,2,1)
       row+=1
 
     #Byte Swap
@@ -1380,19 +1619,64 @@ class TagSettingsPopup(Gtk.Dialog):
       db_byte_swapped = str(self.params['byte_swapped'])
       lbl = Gtk.Label('Byte Swapped')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       bx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, halign = Gtk.Align.CENTER)
       p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
       image = Gtk.Image(pixbuf=p_buf)
       wid =CheckBoxWidget(30,30,image,db_byte_swapped)
       self.byte_swapped = wid.return_self()
       bx.pack_start(self.byte_swapped,0,0,0)
-      grid.attach(bx,1,row,2,1)
+      self.grid.attach(bx,1,row,2,1)
       row+=1
 
-    
-    sep = Gtk.Label(height_request=3)
-    self.dialog_window.pack_start(sep,1,1,1)
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
   def add_style(self, item,style):
     sc = item.get_style_context()
@@ -1408,8 +1692,9 @@ class TagSettingsPopup(Gtk.Dialog):
 
   def close_popup(self, button):
     self.destroy()
-  
-  def on_response(self, widget, response_id):
+
+  def save_settings(self,button,auto_close,*args):
+    ###Get tag values
     self.result['id'] = self.conx_name.get_text()
     self.result['connection_id'] = self.params['connection_id']
     self.result['description'] = self.conx_descr.get_text ()
@@ -1433,7 +1718,22 @@ class TagSettingsPopup(Gtk.Dialog):
       self.result['byte_swapped'] = self.byte_swapped.get_active()
     else:
       self.result['byte_swapped'] = None
-  
+    ###Update tag value
+    conx_obj = self.app.link.get('connections').get(self.result['connection_id'])
+    if conx_obj != None:
+      tag_obj = conx_obj.get('tags').get(self.result['id'])
+      if tag_obj != None:
+        for key, val in self.result.items():
+          if key == 'id' or key == 'connection_id' or val == None:
+            pass
+          else:
+            try:
+              tag_obj.set(key,val)
+            except KeyError as e:
+              print(e,key)
+        self.app.link.save_tag(tag_obj)
+    self.close_popup(False)
+
   def get_result(self):
     return self.result
 
@@ -1455,17 +1755,15 @@ class ConnectionsMainPopup(Gtk.Dialog):
     self.unsaved_changes_present = False
     self.unsaved_conn_rows = {}
     self.conn_column_names = ['id', 'connection_type', 'description']
-    #self.connections_available = {}
+    self.connections_available = {}
+    self.conx_obj_available = {}
     self.app = app
     self.conx_type = self.app.link.get('connection_types')
-    self.app = app
-    self.set_default_size(500, 800)
-    self.set_decorated(False)
-    self.set_border_width(10)
-    self.set_keep_above(False)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
+    self.build_window()
     self.content_area = self.get_content_area()
+    self.conn_filter_val = ''
+    self.get_available_connections()
+    self.get_conx_polling_status('Turbine')
 
     self.dialog_window = Gtk.Box(width_request=800,orientation=Gtk.Orientation.VERTICAL)
     self.content_area.add(self.dialog_window)
@@ -1490,12 +1788,20 @@ class ConnectionsMainPopup(Gtk.Dialog):
     self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=800)
     self.dialog_window.pack_start(self.footer_bar,0,0,1)
 
-    self.build_header("Connection Settings")
+    self.build_header()
     self.build_base()
     self.build_footer()
     self.show_all()
 
-  def build_header(self,title):
+  def build_window(self, *args):
+    self.set_default_size(500, 800)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
+  def build_header(self):
     #header
     self.add_button2 = Gtk.Button(width_request = 30)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/AddConnection.png', 30, -1, True)
@@ -1506,7 +1812,7 @@ class ConnectionsMainPopup(Gtk.Dialog):
     self.title_bar.pack_start(self.add_button2,0,0,0)
     self.add_button2.connect('clicked',self.add_connection_popup,None,self.conx_type)
 
-    title = Gtk.Label(label=title,width_request = 500)
+    title = Gtk.Label(label="Connection Settings",width_request = 500)
     sc = title.get_style_context()
     sc.add_class('text-black-color')
     sc.add_class('font-18')
@@ -1523,83 +1829,292 @@ class ConnectionsMainPopup(Gtk.Dialog):
     sc.add_class('exit-button')
 
   def build_base(self):
-    self.connection_settings = []
-    self.conn_row_num = 1
-    self.conn_grid = Gtk.Grid(column_homogeneous=False,column_spacing=5,row_spacing=5)
-    self.base_area.add(self.conn_grid)
+    self.connection_settings = []  
+    self.liststore = Gtk.ListStore(bool,str , str, str, GdkPixbuf.Pixbuf,GdkPixbuf.Pixbuf)
+    self.treeview = Gtk.TreeView(self.liststore)
+    self.treeview.connect('button-press-event' , self.tree_item_clicked)
+    self.treeview.set_rules_hint( True )
+    self.add_style(self.treeview,['treeview'])
+
+    #Add toggle button
+    connection_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Connect.png', 25, 25)
+    image = Gtk.Image(pixbuf=connection_icon)
+    renderer_toggle = Gtk.CellRendererToggle()
+    renderer_toggle.set_property('cell-background','gray')
+    self.tvcolumn_toggle = Gtk.TreeViewColumn('', renderer_toggle, active=0)
+    h_but = self.tvcolumn_toggle.get_button() #Get reference to column header button
+    c = h_but.get_child()
+    c.add(image)  #add image to column header button
+    c.show_all()
+
+    #renderer_toggle.connect("toggled", self.conx_connect_toggle)
+    self.treeview.append_column(self.tvcolumn_toggle)
+    self.tvcolumn_toggle.set_max_width(30)
+
+    #Generate Columns
+    columns = {1:{'name':'Name','cell':Gtk.CellRendererText(),'width':-1,'expand':True,'type':'text'},
+               2:{'name':'Driver Type','cell':Gtk.CellRendererText(),'width':-1,'expand':True,'type':'text'},
+               3:{'name':'Address','cell':Gtk.CellRendererText(),'width':-1,'expand':True,'type':'text'},
+              }
+    for c in columns:
+      col = Gtk.TreeViewColumn(columns[c]['name'])
+      self.treeview.append_column(col)
+      col.pack_start(columns[c]['cell'], columns[c]['expand'])
+      # Allow sorting on the column
+      col.set_sort_column_id(c)
+      if columns[c]['type'] == 'pixbuf':
+        col.set_attributes(columns[c]['cell'],pixbuf=c)
+        col.set_max_width(columns[c]['width'])
+      else:
+        col.set_attributes(columns[c]['cell'],text=c)
+        col.set_expand(True)
+
+    #Add settings button setup
+    self.cell_settings = Gtk.CellRendererPixbuf()                         # create a CellRenderers to render the data
+    self.tvcolumn_settings = Gtk.TreeViewColumn('')
+    self.treeview.append_column(self.tvcolumn_settings)
+    self.tvcolumn_settings.pack_end(self.cell_settings, False)
+    self.tvcolumn_settings.set_attributes(self.cell_settings,pixbuf=4)
+    self.tvcolumn_settings.set_max_width(30)
+    #Add delete button setup
+    self.cell_delete = Gtk.CellRendererPixbuf()
+    self.tvcolumn_delete = Gtk.TreeViewColumn('')
+    self.treeview.append_column(self.tvcolumn_delete)
+    self.tvcolumn_delete.pack_end(self.cell_delete, False)
+    self.tvcolumn_delete.set_attributes(self.cell_delete,pixbuf=5)
+    self.tvcolumn_delete.set_max_width(30)
+
+    # make treeview searchable
+    self.treeview.set_search_column(1)
+    # Allow drag and drop reordering of rows
+    self.treeview.set_reorderable(True)
+    #Add treeview to base window
+    self.base_area.add(self.treeview)
+
     #header
-    self.add_column_names()
-    self.add_connection_rows()
+    self.add_conx_rows(self.conn_filter_val)
     self.show_all()
 
   def build_footer(self):
-    self.ok_button = Gtk.Button(width_request = 100)
-    self.ok_button.connect('clicked',self.close_popup)
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     box = Gtk.Box()
     lbl = Gtk.Label('OK')
     sc = lbl.get_style_context()
-    sc.add_class('font-14')
-    sc.add_class('font-bold')
+    sc.add_class('font-16')
     box.pack_start(lbl,1,1,1)
-    box.pack_start(image,0,0,0)
+    #box.pack_start(image,0,0,0)
     self.ok_button.add(box)
-    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    #self.footer_bar.pack_end(self.ok_button,0,0,1)
     sc = self.ok_button.get_style_context()
-    sc.add_class('ctrl-button')
+    sc.add_class('ctrl-button-footer')
 
-  def remove_all_rows(self,*args):
-    rows = self.conn_grid.get_children()
-    for items in rows:
-      self.conn_grid.remove(items)
-
-  def create_delete_button(self,conx_id,row,*args):
-    self.delete_button = Gtk.Button(width_request = 30)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Delete.png', 30, -1, True)
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
-    self.delete_button.add(image)
-    sc = self.delete_button.get_style_context()
-    sc.add_class('ctrl-button')
-    self.conn_grid.attach(self.delete_button,5,row,1,1)
-    self.delete_button.connect('clicked',self.confirm_delete,conx_id)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-  def add_connection_rows(self,*args):
-    new_params = {}
-    for conx_id,conx_obj in self.app.link.get('connections').items():
-      for c in self.conn_column_names:
-        new_params[c] = getattr(conx_obj, c)
-      row = Connection_row(new_params,self.conn_grid,self.conn_row_num,self.app,self,self.conx_type)
-      self.create_delete_button(new_params['id'],self.conn_row_num)
-      new_params.clear()
-      self.conn_row_num += 1
-      self.connection_settings.append(row)
+  def tree_item_clicked(self, treeview, event):
+    pthinfo = treeview.get_path_at_pos(event.x, event.y)
+    if event.button == 1: #left click
+      if pthinfo != None:
+        path,column,cellx,celly = pthinfo
+        treeview.grab_focus()
+        treeview.set_cursor(path,column,0)
+        print(column.get_title())
+        #update currently active display
+        selection = treeview.get_selection()
+        tree_model, tree_iter = selection.get_selected()
+        #If selected column is delete icon then initiate delete of connection
+        if tree_iter != None:
+          #gathers the Connection column name and connection type in the row clicked on
+          c_id = tree_model[tree_iter][1]
+          c_type = tree_model[tree_iter][2]
+          #checks if it is a delete or settings button click
+          if column is self.tvcolumn_delete:
+            self.confirm_delete('',c_id,tree_iter)
+          elif column is self.tvcolumn_settings:
+            self.open_settings_popup(c_id)
+          elif column is self.tvcolumn_toggle:
+            self.conx_connect_toggle('button',path,c_id)
+      else:
+        #unselect row in treeview
+        selection = treeview.get_selection()
+        selection.unselect_all()
+    elif event.button == 3: #right click
+      if pthinfo != None:
+        path,col,cellx,celly = pthinfo
+        treeview.grab_focus()
+        treeview.set_cursor(path,col,0)
+        rect = Gdk.Rectangle()
+        rect.x = event.x
+        rect.y = event.y + 10
+        rect.width = rect.height = 1
+        selection = treeview.get_selection()
+        tree_model, tree_iter = selection.get_selected()
+        popover = Gtk.Popover(width_request = 200)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        if tree_iter is not None:
+          #gathers the Tag name/Connection column text in the row clicked on
+          c_id = tree_model[tree_iter][1]
+          c_type = tree_model[tree_iter][2]
+          #popover to add display
+          edit_btn = Gtk.ModelButton(label="Edit", name=c_id)
+          cb = lambda btn: self.open_settings_popup(c_id)
+          edit_btn.connect("clicked", cb)
+          vbox.pack_start(edit_btn, False, True, 10)
+          delete_btn = Gtk.ModelButton(label="Delete", name=c_id)
+          cb = lambda btn:self.confirm_delete('',c_id,tree_iter)
+          delete_btn.connect("clicked", cb)
+          vbox.pack_start(delete_btn, False, True, 10)
+        popover.add(vbox)
+        popover.set_position(Gtk.PositionType.RIGHT)
+        popover.set_relative_to(treeview)
+        popover.set_pointing_to(rect)
+        popover.show_all()
+        sc = popover.get_style_context()
+        sc.add_class('popover-bg')
+        sc.add_class('font-16')
+        return
+      else:
+        return
+    selection = treeview.get_selection()
+    tree_model, tree_iter = selection.get_selected()
+
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    #self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+  def conx_connect_toggle(self, widget, path,id):
+    self.liststore[path][0] = not self.liststore[path][0]
+    poll = self.conx_obj_available[id].polling  #check current polling status
+    self.conx_obj_available[id].set_polling(not(poll)) #Initiate poll start
+
+  def save_settings(self,button,auto_close,*args):
+    pass
+
+  def add_conx_rows(self,filter,*args):
+    connection_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Connect.png', 30, 30)
+    settings_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/settings.png', 30, 30)
+    delete_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Delete.png', 30, 30)
+    for conx_num in self.connections_available:
+      if filter == '' or filter == self.connections_available[conx_num]['id']:
+        self.liststore.append([ False,
+                                self.connections_available[conx_num]['id'],
+                                self.connections_available[conx_num]['connection_type'],
+                                self.connections_available[conx_num]['description'],
+                                settings_icon,
+                                delete_icon,
+                                        ])
     self.show_all()
-    #Spaces out column headers when no data available
-    if len(new_params) != 0:
-      self.conn_grid.set_column_homogeneous(True)
-    else:
-      self.conn_grid.set_column_homogeneous(False)
-  
+
   def insert_connection_row(self,button,params,*args):
-    #if params = None then insert blank row
-    self.conn_grid.set_column_homogeneous(False) 
-    self.conn_grid.insert_row(1)
-    row = Connection_row(params,self.conn_grid,1,self.app,self,self.conx_type)
-    self.create_delete_button(None,1)
-    self.conn_row_num += 1
-    self.connection_settings.append(row)
+    connection_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Connect.png', 30, 30)
+    settings_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/settings.png', 30, 30)
+    delete_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Delete.png', 30, 30)
+    self.liststore.insert(0,[False,
+                            params['id'],
+                            params['connection_type'],
+                            params['description'],
+                            settings_icon,
+                            delete_icon,
+                                    ])
     self.show_all()
-
-  def add_column_names(self,*args):
-    labels = ['','Connection Name', 'Connection Driver', 'Connection Description', '',''] # may want to create a table in the db for column names
-    for l_idx in range(len(labels)):
-        l = Gtk.Label(labels[l_idx])
-        sc = l.get_style_context()
-        sc.add_class('text-black-color')
-        sc.add_class('font-14')
-        sc.add_class('font-bold')
-        self.conn_grid.attach(l, l_idx, 0, 1, 1)
+  
+  def get_available_connections(self,*args):
+    conx_items = ['id', 'connection_type', 'description']
+    new_params = {}
+    self.connections_available = {}   #Clears out old list
+    self.conx_obj_available = {}   #Clears out old list
+    count = 0
+    for conx_id,conx_obj in self.app.link.get('connections').items():
+      for c in conx_items:
+        new_params[c] = getattr(conx_obj, c)
+      self.connections_available[count] = new_params
+      self.conx_obj_available[conx_id] = conx_obj   #Hold reference to all conx objects
+      new_params = {}
+      count += 1
+  
+  def get_conx_polling_status(self, id,*args):
+    #This method uses the stored conx objects to access polling status of connections
+    obj = self.conx_obj_available[id]
+    print(id,obj.polling)
+    return obj.polling
   
   def scroll_to_bottom(self, adjust):
     max = adjust.get_upper()
@@ -1613,12 +2128,14 @@ class ConnectionsMainPopup(Gtk.Dialog):
     for sty in style:
       sc.add_class(sty)
 
-  def confirm_delete(self, button,conx_id,msg="Are you sure you want to delete this connection?", args=[]):
+  def confirm_delete(self, button,conx_id,tree_iter,msg="Are you sure you want to delete this connection?", args=[]):
     popup = PopupConfirm(self, msg=msg)
     response = popup.run()
     popup.destroy()
     if response == Gtk.ResponseType.YES:
       self.delete_row(conx_id)
+      self.liststore.remove(tree_iter)
+      self.get_available_connections()
       return True
     else:
       return False
@@ -1627,9 +2144,6 @@ class ConnectionsMainPopup(Gtk.Dialog):
     conx_obj = self.app.link.get("connections").get(id)
     if conx_obj != None:
       self.app.link.delete_connection(conx_obj,id)
-    self.remove_all_rows()
-    self.add_column_names()
-    self.add_connection_rows()
     self.show_all()
 
   def create_connection(self,params,*args):
@@ -1641,7 +2155,10 @@ class ConnectionsMainPopup(Gtk.Dialog):
     conx_obj = self.app.link.get("connections").get(params['id'])
     if conx_obj != None:
       self.app.link.save_connection(conx_obj)
-    self.insert_connection_row(None,params)
+      self.insert_connection_row(None,params)
+      self.get_available_connections()
+    else:
+      print('connection creation failed')
 
   def update_connection(self,params,*args):
     conx_obj = self.app.link.get("connections").get(params['id'])
@@ -1657,12 +2174,12 @@ class ConnectionsMainPopup(Gtk.Dialog):
       self.app.link.save_connection(conx_obj)
 
   def add_connection_popup(self,button,bad_name,*args):
-    popup = AddConnectionPopup(self,bad_name,self.conx_type)
+    popup = AddConnectionPopup(self,bad_name,self.app,self.conx_type)
     response = popup.run()
     popup.destroy()
     if response == Gtk.ResponseType.YES:
-      results = (popup.get_result())
-      self.check_duplicate_name(results)
+      #results = (popup.get_result())
+      #self.check_duplicate_name(results)
       return True
     else:
       return False
@@ -1671,26 +2188,15 @@ class ConnectionsMainPopup(Gtk.Dialog):
     conx_obj = self.app.link.get("connections").get(conx_id)
     if conx_obj != None:
       return self.app.link.get_connection_params(conx_obj,conx_id)
-
-  def check_duplicate_name(self,results,*args):
-    dup = False
-    for conx_id,conx_obj in self.app.link.get('connections').items():
-      if conx_id == results['id']:
-        dup = True
-    if dup:
-      self.add_connection_popup(None,results,self.conx_type)
-    else:
-      self.create_connection(results)
-      self.open_settings_popup(results['id'])
   
   def open_settings_popup(self,conx_id,*args):
     params = self.get_connection_params(conx_id)
-    popup = ConnectionSettingsPopup(self,params)
+    popup = ConnectionSettingsPopup(self,params,self.app)
     response = popup.run()
     popup.destroy()
     if response == Gtk.ResponseType.YES:
-      results = (popup.get_result())
-      self.update_connection(results)
+      #results = (popup.get_result())
+      #self.update_connection(results)
       return True
     else:
       return False
@@ -1699,156 +2205,108 @@ class ConnectionsMainPopup(Gtk.Dialog):
     self.destroy()
 
 
-class Connection_row(object):
-  def __init__(self,params,conn_grid,row_num,app,parent,conx_types,*args):
-    self.app = app
-    self.parent = parent
-    self.conx_type = conx_types
-    self.conn_grid = conn_grid
-    self.conn_row_num = row_num
-    self.params = params
-    if self.params != None:
-      self.id = self.params['id']
-    self.unsaved_changes = False      #Need to pass this up so that confirm closing popup with unsaved changes
-    self.build_row()
-    #Rows start at 1 because row 0 is titles
-    #Grid : Left,Top,Width,Height
-    #{'id': '2', 'connection_type': 4, 'description': 'EthernetIP'}
-
-  def build_row(self,*args):
-    #icon
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Connect.png', 25, -1, True)
-    icon = Gtk.Image(pixbuf=p_buf,height_request = 30)
-    self.conn_grid.attach(icon,0,self.conn_row_num,1,1)
-
-    #Connection name entry
-    db_conx_name = str(self.params['id'])
-    self.conx_name = Gtk.Label(width_request = 200,height_request = 25)#hexpand = True
-    self.conx_name.set_label(db_conx_name)
-    self.add_style(self.conx_name,["font-18","ctrl-lbl","font-bold"])
-    self.conn_grid.attach(self.conx_name,1,self.conn_row_num,1,1)    
-
-    #Connection Driver
-    #self.conx_Typedata = {0:'', 1: 'Local', 2: 'ModbusTCP', 3: 'ModbusRTU', 4: 'EthernetIP', 5: 'ADS', 6: 'GRBL', 7: 'OPCUA'}
-    db_conx_driver = self.params['connection_type']
-    self.conx_driver = Gtk.Label(width_request = 200,height_request = 25)#hexpand = True
-    #if db_conx_driver in self.conx_Typedata.keys():
-    self.conx_driver.set_label(db_conx_driver)
-    self.add_style(self.conx_driver,["font-18","ctrl-lbl","font-bold"])
-    self.conn_grid.attach(self.conx_driver,2,self.conn_row_num,1,1)
-
-    #Connection Description
-    db_conx_desc = self.params['description']
-    self.conx_desc = Gtk.Label(width_request = 200,height_request = 25)#hexpand = True
-    self.conx_desc.set_label(db_conx_desc)
-    self.add_style(self.conx_desc,["font-18","ctrl-lbl","font-bold"])
-    self.conn_grid.attach(self.conx_desc,3,self.conn_row_num,1,1)
-    
-    #Connection Settings Button
-    self.driver_settings_button = Gtk.Button(height_request = 25)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/settings.png', 25, -1, True)
-    icon = Gtk.Image(pixbuf=p_buf)
-    self.driver_settings_button.add(icon)
-    self.parent.add_style(self.driver_settings_button,["ctrl-button"])
-    self.driver_settings_button.connect("clicked", self.open_settings)
-    self.conn_grid.attach(self.driver_settings_button,4,self.conn_row_num,1,1)
-    if self.params != None:
-      self.driver_settings_button.set_sensitive(True)
-    else:
-      self.driver_settings_button.set_sensitive(False)
-
-  def enable_new(self, obj, prop):
-    enable = (obj.get_property('text-length') > 0)
-    self.save_button.set_sensitive(enable)
-    if enable:
-      self.parent.add_style(self.conx_name,["entry","font-18","font-bold"])
-    else:
-      self.parent.add_style(self.conx_name,["entry","font-12"])
-
-  def driver_selected(self,obj,*args):
-    if not obj.get_active_text():
-      self.driver_settings_button.set_sensitive(False)
-    else:
-      self.driver_settings_button.set_sensitive(True)
-
-  def open_settings(self,button,*args):
-    self.parent.open_settings_popup(self.id)
-
-  def add_style(self, item,style):
-    sc = item.get_style_context()
-    for sty in style:
-      sc.add_class(sty)
-
-
 class AddConnectionPopup(Gtk.Dialog):
-  def __init__(self, parent,params,conx_type):
+  def __init__(self, parent,params,app,conx_type):
     Gtk.Dialog.__init__(self, '',parent, Gtk.DialogFlags.MODAL,
-                        (Gtk.STOCK_SAVE, Gtk.ResponseType.YES,
-                          Gtk.STOCK_CANCEL, Gtk.ResponseType.NO)
+                        ()
                         )
+    self.parent = parent
+    self.app = app
     self.params = params
     self.conx_type = conx_type
-    self.set_default_size(200, 150)
-    self.set_border_width(10)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
-    self.set_keep_above(True)
-    self.set_decorated(False)
+    self.build_window()
     self.connect("response", self.on_response)
-    self.content_area = self.get_content_area()
     self.result = {}
 
-    self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
-    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.content_area = self.get_content_area()
+    self.dialog_window = Gtk.Box(width_request=500,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window )
+    ### - Title Bar- ###
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
 
-    #header
+    ### - Base Area- ###
+    self.grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
+    self.dialog_window.pack_start(self.grid,1,1,1)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+    self.load_settings()
+    self.build_header()
+    self.build_base()
+    self.build_footer()
+    if self.params:
+      self.reload_popup(self.params)
+    self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(200, 150)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(True)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
+  def build_header(self,*args):
+    #Save Button
+    self.save_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.save_button.add(image)
+    sc = self.save_button.get_style_context()
+    sc.add_class('ctrl-button')
+    bx = Gtk.Box()
+    bx.pack_end(self.save_button,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    self.save_button.connect('clicked',self.save_settings,False)
+
+    #title
     title = Gtk.Label(label='Create New Connection')
     sc = title.get_style_context()
     sc.add_class('text-black-color')
     sc.add_class('font-18')
     sc.add_class('font-bold')
     self.title_bar.pack_start(title,1,1,1)
-    self.pin_button = Gtk.Button(width_request = 20)
-    self.pin_button.connect('clicked',self.close_popup)
+
+    #exit button
+    self.exit_button = Gtk.Button(width_request = 20)
+    self.exit_button.connect('clicked',self.close_popup)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
-    self.pin_button.add(image)
-    self.title_bar.pack_end(self.pin_button,0,0,1)
-    sc = self.pin_button.get_style_context()
+    self.exit_button.add(image)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
+    sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    #self.dialog_window.pack_start(divider,0,0,1)
-    self.content_area.add(self.dialog_window )
-    self.build_base()
-    if self.params:
-      self.same_name(self.params)
-    self.show_all()
 
   def build_base(self,*args):
-    grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
     self.pop_lbl = Gtk.Label('')
     self.add_style(self.pop_lbl,['text-red-color','font-14','font-bold'])
-    grid.attach(self.pop_lbl,0,0,3,1)
-    self.dialog_window.pack_start(grid,1,1,1)
+    self.grid.attach(self.pop_lbl,0,0,3,1)
 
     #Connection name entry
     lbl = Gtk.Label('Connection Name')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,1,1,1) 
+    self.grid.attach(lbl,0,1,1,1) 
     self.conx_name = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
     self.conx_name.set_placeholder_text('Enter Connection Name')
     self.conx_name.set_alignment(0.5)
     self.add_style(self.conx_name,["entry","font-12"])
     self.conx_name.connect("notify::text-length", self.enable_new)
-    grid.attach(self.conx_name,1,1,2,1)    
+    self.grid.attach(self.conx_name,1,1,2,1)    
 
     #Connection Driver
     lbl = Gtk.Label('Connection Driver')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,2,1,1) 
+    self.grid.attach(lbl,0,2,1,1) 
     self.conx_driver = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
     self.add_style(self.conx_driver,["font-18","list-select","font-bold"])
     val = 0
@@ -1856,21 +2314,91 @@ class AddConnectionPopup(Gtk.Dialog):
       self.conx_driver.append(str(val),key)
       val+= 1
     self.conx_driver.set_active(0)
-    grid.attach(self.conx_driver,1,2,2,1)
+    self.grid.attach(self.conx_driver,1,2,2,1)
 
    #Connection description entry
     lbl = Gtk.Label('Connection Description')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,3,1,1) 
+    self.grid.attach(lbl,0,3,1,1) 
     self.conx_descr = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
     self.conx_descr.set_placeholder_text('Enter Connection Description')
     self.conx_descr.set_alignment(0.5)
     self.add_style(self.conx_descr,["entry","font-12"])
     self.conx_descr.connect("notify::text-length", self.enable_new)
-    grid.attach(self.conx_descr,1,3,2,1)  
-    
-    sep = Gtk.Label(height_request=3)
-    self.dialog_window.pack_start(sep,1,1,1)
+    self.grid.attach(self.conx_descr,1,3,2,1)  
+
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+  def load_settings(self,*args):
+    pass
+
+  def save_settings(self,button,auto_close,*args):
+    ####Get Results
+    #{'id': '2', 'connection_type': 4, 'description': 'EthernetIP'}
+    self.result['id'] = self.conx_name.get_text ()
+    self.result['connection_type'] = self.conx_driver.get_active_text()
+    self.result['description'] = self.conx_descr.get_text ()
+    #####Check Results /Save
+    if self.result['id'] ==  '':
+      dup = True
+    else:
+      dup = False
+    for conx_id,conx_obj in self.app.link.get('connections').items():
+      if conx_id == self.result['id']:
+        dup = True
+    if dup:
+      self.reload_popup(self.result)
+    else:
+      self.close_popup(False)
+      self.parent.create_connection(self.result)
+      self.parent.open_settings_popup(self.result['id'])
 
   def add_style(self, item,style):
     sc = item.get_style_context()
@@ -1896,7 +2424,7 @@ class AddConnectionPopup(Gtk.Dialog):
   def get_result(self):
     return self.result
   
-  def same_name(self,results):
+  def reload_popup(self,results):
     self.pop_lbl.set_label('Name Already Exists')
     self.conx_name.set_text('')
     val = 0
@@ -1908,25 +2436,67 @@ class AddConnectionPopup(Gtk.Dialog):
 
 
 class ConnectionSettingsPopup(Gtk.Dialog):
-  def __init__(self, parent,params):
+  def __init__(self, parent,params,app):
     Gtk.Dialog.__init__(self, '',parent, Gtk.DialogFlags.MODAL,
-                        (Gtk.STOCK_SAVE, Gtk.ResponseType.YES)
+                        ()
                         )
     self.params = params
-    self.set_default_size(500, 400)
-    self.set_border_width(10)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
-    self.set_keep_above(True)
-    self.set_decorated(False)
-    self.connect("response", self.on_response)
-    self.content_area = self.get_content_area()
+    self.app = app
+    self.build_window()
+    #self.connect("response", self.on_response)
     self.result = {}
 
+    self.content_area = self.get_content_area()
     self.dialog_window = Gtk.Box(width_request=500,orientation=Gtk.Orientation.VERTICAL)
-    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=500)
+    self.content_area.add(self.dialog_window )
+    ### - Title Bar- ###
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
 
-    #header
+    ### - Base Area- ###
+    self.grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
+    self.dialog_window.pack_start(self.grid,1,1,1)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+
+    self.load_settings()
+    self.build_header()
+    self.build_base()
+    self.build_footer()
+    self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(500, 400)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(True)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
+  def build_header(self,*args):
+    #Save Button
+    self.save_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.save_button.add(image)
+    sc = self.save_button.get_style_context()
+    sc.add_class('ctrl-button')
+    bx = Gtk.Box()
+    bx.pack_end(self.save_button,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    self.save_button.connect('clicked',self.save_settings,False)
+
+    #title
     tit = self.params['connection_type']
     title = Gtk.Label(label=f'{tit} Connection')
     sc = title.get_style_context()
@@ -1934,58 +2504,50 @@ class ConnectionSettingsPopup(Gtk.Dialog):
     sc.add_class('font-18')
     sc.add_class('font-bold')
     self.title_bar.pack_start(title,1,1,1)
-    self.pin_button = Gtk.Button(width_request = 20)
-    self.pin_button.connect('clicked',self.close_popup)
+
+    #exit button
+    self.exit_button = Gtk.Button(width_request = 20)
+    self.exit_button.connect('clicked',self.close_popup)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
-    self.pin_button.add(image)
-    #self.title_bar.pack_end(self.pin_button,0,0,1)
-    sc = self.pin_button.get_style_context()
+    self.exit_button.add(image)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
+    sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    self.dialog_window.pack_start(divider,0,0,1)
-    self.content_area.add(self.dialog_window )
-    self.build_base()
-    self.show_all()
 
   def build_base(self,*args):
     row = 0
-    grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
-    self.dialog_window.pack_start(grid,1,1,1)
 
     #Connection name entry
     lbl = Gtk.Label('Connection Name')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,row,1,1) 
+    self.grid.attach(lbl,0,row,1,1) 
     self.conx_name = Gtk.Label(width_request = 300,height_request = 30)
     self.conx_name.set_text(self.params['id'])
     self.conx_name.set_alignment(0.5,0.5)
     self.add_style(self.conx_name,["label","font-18","font-bold"])
     #self.conx_name.connect("notify::text-length", self.enable_new)
-    grid.attach(self.conx_name,1,row,2,1)   
+    self.grid.attach(self.conx_name,1,row,2,1)   
     row+=1 
 
     #Connection description entry
     lbl = Gtk.Label('Connection Description')
     self.add_style(lbl,["Label","font-16",'font-bold'])
-    grid.attach(lbl,0,row,1,1) 
+    self.grid.attach(lbl,0,row,1,1) 
     self.conx_descr = Gtk.Label(width_request = 300,height_request = 30)
     self.conx_descr.set_text(self.params['description'])
     self.conx_descr.set_alignment(0.5,0.5)
     self.add_style(self.conx_descr,["label","font-18","font-bold"])
     #self.conx_descr.connect("notify::text-length", self.enable_new)
-    grid.attach(self.conx_descr,1,row,2,1) 
+    self.grid.attach(self.conx_descr,1,row,2,1) 
     row+=1 
 
     #Pollrate
     if 'pollrate' in self.params.keys():    
       db_poll_rate = str(self.params['pollrate'])
-      lbl = Gtk.Label('Connection Pollrate')
+      lbl = Gtk.Label('Connection Pollrate (sec)')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       but = Gtk.Button(width_request = 100)
       self.pollrate = Gtk.Label()
       self.pollrate.set_label(db_poll_rate)
@@ -1993,8 +2555,8 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       but.add(self.pollrate)
       sc = but.get_style_context()
       sc.add_class('ctrl-button')
-      but.connect('clicked',self.open_numpad,self.pollrate,{'min':-32768,'max':32768,'type':float,'polarity':True})
-      grid.attach(but,1,row,2,1)
+      but.connect('clicked',self.open_numpad,self.pollrate,{'min':0.001,'max':10000.0,'type':float,'polarity':True,'name':'Pollrate'})
+      self.grid.attach(but,1,row,2,1)
       row+=1 
 
     #Auto Connect
@@ -2002,14 +2564,14 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_auto_connect = str(self.params['auto_connect'])
       lbl = Gtk.Label('Auto Connect on Start')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       bx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, halign = Gtk.Align.CENTER)
       p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
       image = Gtk.Image(pixbuf=p_buf)
       wid =CheckBoxWidget(30,30,image,db_auto_connect)
       self.auto_connect = wid.return_self()
       bx.pack_start(self.auto_connect,0,0,0)
-      grid.attach(bx,1,row,2,1)
+      self.grid.attach(bx,1,row,2,1)
       row+=1
 
     #Connection host entry
@@ -2017,12 +2579,12 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_host = str(self.params['host'])
       lbl = Gtk.Label('Connection Host')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.conx_host = Gtk.Entry(max_length = 100,width_request = 300,height_request = 30)
       self.conx_host.set_alignment(0.5)
       self.add_style(self.conx_host,["entry","font-18","font-bold"])
       self.conx_host.set_text(db_host)
-      grid.attach(self.conx_host,1,row,2,1)
+      self.grid.attach(self.conx_host,1,row,2,1)
       row+=1 
 
     #Port
@@ -2030,7 +2592,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_port = str(self.params['port'])
       lbl = Gtk.Label('Connection Port')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       but = Gtk.Button(width_request = 100)
       self.conx_port = Gtk.Label()
       self.conx_port.set_label(db_port)
@@ -2038,8 +2600,8 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       but.add(self.conx_port)
       sc = but.get_style_context()
       sc.add_class('ctrl-button')
-      but.connect('clicked',self.open_numpad,self.conx_port,{'min':0,'max':65536,'type':int,'polarity':True})
-      grid.attach(but,1,row,2,1)
+      but.connect('clicked',self.open_numpad,self.conx_port,{'min':0,'max':65536,'type':int,'polarity':True,'name':'Port Number'})
+      self.grid.attach(but,1,row,2,1)
       row+=1 
 
     #Station ID
@@ -2047,7 +2609,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_station_id = str(self.params['station_id'])
       lbl = Gtk.Label('Station ID')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       but = Gtk.Button(width_request = 100)
       self.station_id = Gtk.Label()
       self.station_id.set_label(db_station_id)
@@ -2055,8 +2617,8 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       but.add(self.station_id)
       sc = but.get_style_context()
       sc.add_class('ctrl-button')
-      but.connect('clicked',self.open_numpad,self.station_id,{'min':0,'max':255,'type':int,'polarity':True})
-      grid.attach(but,1,row,2,1)
+      but.connect('clicked',self.open_numpad,self.station_id,{'min':0,'max':255,'type':int,'polarity':True,'name':'Station ID'})
+      self.grid.attach(but,1,row,2,1)
       row+=1 
 
     #Connection Baudrate
@@ -2064,7 +2626,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_baudrate = str(self.params['baudrate'])
       lbl = Gtk.Label('Baudrate')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.baudrate = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
       self.add_style(self.baudrate,["font-18","list-select","font-bold"])
       br = None
@@ -2079,7 +2641,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
         self.baudrate.set_active(br)
       else:
         self.baudrate.set_active(0)
-      grid.attach(self.baudrate,1,row,2,1)
+      self.grid.attach(self.baudrate,1,row,2,1)
       row+=1 
 
     #Timeout
@@ -2087,7 +2649,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_timeout = str(self.params['timeout'])
       lbl = Gtk.Label('Timeout (sec)')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       but = Gtk.Button(width_request = 100)
       self.timeout = Gtk.Label()
       self.timeout.set_label(db_timeout)
@@ -2095,8 +2657,8 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       but.add(self.timeout)
       sc = but.get_style_context()
       sc.add_class('ctrl-button')
-      but.connect('clicked',self.open_numpad,self.timeout,{'min':0,'max':100,'type':int,'polarity':True})
-      grid.attach(but,1,row,2,1)
+      but.connect('clicked',self.open_numpad,self.timeout,{'min':0,'max':100,'type':int,'polarity':True,'name':'Timeout (sec)'})
+      self.grid.attach(but,1,row,2,1)
       row+=1 
 
     #Stop Bit
@@ -2104,7 +2666,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_stop_bit = str(self.params['stop_bit'])
       lbl = Gtk.Label('Stop bits')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.stop_bit = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
       self.add_style(self.stop_bit,["font-18","list-select","font-bold"])
       sb = None
@@ -2119,7 +2681,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
         self.stop_bit.set_active(sb)
       else:
         self.stop_bit.set_active(0)
-      grid.attach(self.stop_bit,1,row,2,1)
+      self.grid.attach(self.stop_bit,1,row,2,1)
       row+=1 
 
     #parity
@@ -2127,7 +2689,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_parity = str(self.params['parity'])
       lbl = Gtk.Label('Parity')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.parity = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
       self.add_style(self.parity,["font-18","list-select","font-bold"])
       process_link = None
@@ -2142,7 +2704,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
         self.parity.set_active(p)
       else:
         self.parity.set_active(0)
-      grid.attach(self.parity,1,row,2,1)
+      self.grid.attach(self.parity,1,row,2,1)
       row+=1 
 
     #byte_size
@@ -2150,7 +2712,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_byte_size = str(self.params['byte_size'])
       lbl = Gtk.Label('Byte Size')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       self.byte_size = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
       self.add_style(self.byte_size,["font-18","list-select","font-bold"])
       bs = None
@@ -2165,7 +2727,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
         self.byte_size.set_active(bs)
       else:
         self.byte_size.set_active(0)
-      grid.attach(self.byte_size,1,row,2,1)
+      self.grid.attach(self.byte_size,1,row,2,1)
       row+=1 
 
     #Retries
@@ -2173,7 +2735,7 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       db_retries = str(self.params['retries'])
       lbl = Gtk.Label('Retries')
       self.add_style(lbl,["Label","font-16",'font-bold'])
-      grid.attach(lbl,0,row,1,1) 
+      self.grid.attach(lbl,0,row,1,1) 
       but = Gtk.Button(width_request = 100)
       self.retries = Gtk.Label()
       self.retries.set_label(db_retries)
@@ -2181,29 +2743,63 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       but.add(self.retries)
       sc = but.get_style_context()
       sc.add_class('ctrl-button')
-      but.connect('clicked',self.open_numpad,self.retries,{'min':0,'max':10,'type':int,'polarity':True})
-      grid.attach(but,1,row,2,1)
+      but.connect('clicked',self.open_numpad,self.retries,{'min':0,'max':10,'type':int,'polarity':True,'name':'Retries'})
+      self.grid.attach(but,1,row,2,1)
       row+=1 
     
-    sep = Gtk.Label(height_request=3)
-    self.dialog_window.pack_start(sep,1,1,1)
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-  def add_style(self, item,style):
-    sc = item.get_style_context()
-    for sty in style:
-      sc.add_class(sty)
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-  def enable_new(self, obj, prop):
-    enable = (obj.get_property('text-length') > 0)
-    if enable:
-      self.add_style(obj,["entry","font-18","font-bold"])
-    else:
-      self.add_style(obj,["entry","font-12"])
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-  def close_popup(self, button):
-    self.destroy()
-  
-  def on_response(self, widget, response_id):
+  def load_settings(self,*args):
+    pass
+
+  def save_settings(self,button,auto_close,*args):
     self.result['id'] = self.conx_name.get_text()
     self.result['connection_type'] = self.params['connection_type']
     self.result['description'] = self.conx_descr.get_text ()
@@ -2251,6 +2847,84 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       self.result['retries'] = self.retries.get_text()
     else:
       self.result['retries'] = None
+    ####Save values
+    conx_obj = self.app.link.get("connections").get(self.result['id'])
+    if conx_obj != None:
+      for key, val in self.result.items():
+        if key == 'id' or key == 'description' or key == 'connection_type' or val == None:
+          pass
+        else:
+          try:
+            conx_obj.set(key,val)
+          except KeyError as e:
+            print(e,key)
+      self.app.link.save_connection(conx_obj)
+      if auto_close:
+        self.close_popup(False)
+
+  def add_style(self, item,style):
+    sc = item.get_style_context()
+    for sty in style:
+      sc.add_class(sty)
+
+  def enable_new(self, obj, prop):
+    enable = (obj.get_property('text-length') > 0)
+    if enable:
+      self.add_style(obj,["entry","font-18","font-bold"])
+    else:
+      self.add_style(obj,["entry","font-12"])
+
+  def close_popup(self, button):
+    self.destroy()
+  
+  """ def on_response(self, widget, response_id):
+    self.result['id'] = self.conx_name.get_text()
+    self.result['connection_type'] = self.params['connection_type']
+    self.result['description'] = self.conx_descr.get_text ()
+    if 'pollrate' in self.params.keys():
+      self.result['pollrate'] = self.pollrate.get_text()
+    else:
+      self.result['pollrate'] = None
+    if 'auto_connect' in self.params.keys():
+      self.result['auto_connect'] = self.auto_connect.get_active()
+    else:
+      self.result['auto_connect'] = None
+    if 'host' in self.params.keys():
+      self.result['host'] = self.conx_host.get_text()
+    else:
+      self.result['host'] = None
+    if 'port' in self.params.keys():
+      self.result['port'] = self.conx_port.get_text()
+    else:
+      self.result['port'] = None
+    if 'station_id' in self.params.keys():
+      self.result['station_id'] = self.station_id.get_text()
+    else:
+      self.result['station_id'] = None
+    if 'baudrate' in self.params.keys():
+      self.result['baudrate'] = self.baudrate.get_active_text()
+    else:
+      self.result['baudrate'] = None
+    if 'timeout' in self.params.keys():
+      self.result['timeout'] = self.timeout.get_text()
+    else:
+      self.result['timeout'] = None
+    if 'stop_bit' in self.params.keys():
+      self.result['stop_bit'] = self.stop_bit.get_active_text()
+    else:
+      self.result['stop_bit'] = None
+    if 'parity' in self.params.keys():
+      self.result['parity'] = self.parity.get_active_text()
+    else:
+      self.result['parity'] = None
+    if 'byte_size' in self.params.keys():
+      self.result['byte_size'] = self.byte_size.get_active_text()
+    else:
+      self.result['byte_size'] = None
+    if 'retries' in self.params.keys():
+      self.result['retries'] = self.retries.get_text()
+    else:
+      self.result['retries'] = None """
   
   def get_result(self):
     return self.result
@@ -2271,63 +2945,93 @@ class ValueEnter(Gtk.Dialog):
   def __init__(self, parent,obj,params):
     super().__init__(flags=0) 
 
+    self.params = params
     self.widget_obj = obj
     self.first_key_pressed = False #the user hasn't typed anything yet
-    self.lbl = "Numpad"
-    self.min = params['min']  #minimum value acceptable
-    self.max = params['max']  #maximum value acceptable
-    self.num_polarity = params['polarity']#whether value can be +/-
-    self.num_type = params['type']  #whether number is int or float
     self.initial_value = 0
+    self.build_window()
+
+    self.content_area = self.get_content_area()
+    self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window )
+    ### - Title Bar- ###
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+
+    ### - Base Area- ###
+    self.grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
+    self.dialog_window.pack_start(self.grid,1,1,1)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+
+    self.build_header()
+    self.build_base()
+    self.build_footer()
+    self.show_all()
+
+  def build_window(self, *args):
     self.set_default_size(600, 400)
+    self.set_decorated(False)
     self.set_border_width(10)
+    self.set_keep_above(True)
     sc = self.get_style_context()
     sc.add_class("dialog-border")
-    self.set_keep_above(True)
-    self.set_decorated(False)
-    self.content_area = self.get_content_area()
 
-    self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
-    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+  def build_header(self,*args):
+    #Save Button
+    self.save_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.save_button.add(image)
+    sc = self.save_button.get_style_context()
+    sc.add_class('ctrl-button')
+    bx = Gtk.Box()
+    bx.pack_end(self.save_button,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    self.save_button.connect('clicked',self.save_settings,False)
 
-    #header
-    title = Gtk.Label(label=self.lbl)
+    #title
+    title = Gtk.Label(label='Numpad')
     sc = title.get_style_context()
     sc.add_class('text-black-color')
     sc.add_class('font-18')
     sc.add_class('font-bold')
     self.title_bar.pack_start(title,1,1,1)
-    self.pin_button = Gtk.Button(width_request = 20)
-    self.pin_button.connect('clicked',self.close_popup)
+
+    #exit button
+    self.exit_button = Gtk.Button(width_request = 20)
+    self.exit_button.connect('clicked',self.close_popup)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
-    self.pin_button.add(image)
-    self.title_bar.pack_end(self.pin_button,0,0,1)
-    sc = self.pin_button.get_style_context()
+    self.exit_button.add(image)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
+    sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    #self.dialog_window.pack_start(divider,0,0,1)
-    self.content_area.add(self.dialog_window )
-    self.build_base()
-    self.show_all()
 
   def build_base(self,*args):
-    grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True,)
-    pop_lbl = Gtk.Label("{}".format(self.lbl))
+    if 'name' in self.params:
+      lbl = self.params['name']
+    else:
+      lbl = 'Numpad'
+    pop_lbl = Gtk.Label("{}".format(lbl))
     self.add_style(pop_lbl,['borderless-num-display','font-14','text-black-color'])
-    grid.attach(pop_lbl,0,0,2,1)
-    self.dialog_window.pack_start(grid,1,1,1)
-    sep = Gtk.Label(height_request=3)
-    self.dialog_window.pack_start(sep,1,1,1)
+    self.grid.attach(pop_lbl,0,0,2,1)
 
     try:
       if isinstance(self.widget_obj, Gtk.Label):
-        value = self.num_type(self.widget_obj.get_label())
+        value = self.params['type'](self.widget_obj.get_label())
       if isinstance(self.widget_obj, Gtk.Entry):
-        value = self.num_type(self.widget_obj.get_text())
+        value = self.params['type'](self.widget_obj.get_text())
       self.initial_value = value
     except ValueError:
       value = 0
@@ -2335,12 +3039,12 @@ class ValueEnter(Gtk.Dialog):
     #value = 0
     self.val_label = Gtk.Label(str(value))
     self.add_style(self.val_label,['numpad-display','font-16'])
-    grid.attach(self.val_label,2,0,1,1)
-    min_str = "-"+chr(0x221e) if type(self.min) == type(None) else self.min
-    max_str = chr(0x221e) if type(self.max) == type(None) else self.max
+    self.grid.attach(self.val_label,2,0,1,1)
+    min_str = "-"+chr(0x221e) if type(self.params['min']) == type(None) else self.params['min']
+    max_str = chr(0x221e) if type(self.params['max']) == type(None) else self.params['max']
     min_max_lbl = Gtk.Label(u"({} ~ {})".format(min_str, max_str))
     self.add_style(min_max_lbl,['font-14'])
-    grid.attach(min_max_lbl,3,0,1,1)
+    self.grid.attach(min_max_lbl,3,0,1,1)
     key = []
     for k in range(10):
       b = Gtk.Button(str(k), can_focus=False, can_default=False)
@@ -2348,46 +3052,46 @@ class ValueEnter(Gtk.Dialog):
       b.connect("clicked", self.btn_pressed)
       key.append(b)
       self.add_style(b,['numpad-bg','keypad_key'])
-    grid.attach(key[7],0,2,1,1)
-    grid.attach(key[8],1,2,1,1)
-    grid.attach(key[9],2,2,1,1)
+    self.grid.attach(key[7],0,2,1,1)
+    self.grid.attach(key[8],1,2,1,1)
+    self.grid.attach(key[9],2,2,1,1)
   
-    grid.attach(key[4],0,3,1,1)
-    grid.attach(key[5],1,3,1,1)
-    grid.attach(key[6],2,3,1,1)
+    self.grid.attach(key[4],0,3,1,1)
+    self.grid.attach(key[5],1,3,1,1)
+    self.grid.attach(key[6],2,3,1,1)
 
-    grid.attach(key[1],0,4,1,1)
-    grid.attach(key[2],1,4,1,1)
-    grid.attach(key[3],2,4,1,1)
+    self.grid.attach(key[1],0,4,1,1)
+    self.grid.attach(key[2],1,4,1,1)
+    self.grid.attach(key[3],2,4,1,1)
 
-    grid.attach(key[0],0,5,2,1)
+    self.grid.attach(key[0],0,5,2,1)
 
     period_key = Gtk.Button(".", can_focus=False, can_default=False)
     period_key.connect("clicked", self.add_period)
     self.add_style(period_key,['numpad-bg','keypad_key'])
-    if self.num_type == float:
-      grid.attach(period_key,2,5,1,1)
+    if self.params['type'] == float:
+      self.grid.attach(period_key,2,5,1,1)
 
     PM_key = Gtk.Button("+/-")
     PM_key.connect("clicked", self.add_plus_minus)
     self.add_style(PM_key,['numpad-bg','keypad_key'])
-    if self.num_polarity:
-      grid.attach(PM_key,3,5,1,1)
+    if self.params['polarity']:
+      self.grid.attach(PM_key,3,5,1,1)
     
     clear_key = Gtk.Button("CLEAR", can_focus=False, can_default=False)
     clear_key.connect("clicked", self.init_val)
     self.add_style(clear_key,['numpad-cmd-bg','keypad_enter'])
-    grid.attach(clear_key,3,2,1,1)
+    self.grid.attach(clear_key,3,2,1,1)
 
     delete_key = Gtk.Button("DEL", can_focus=False, can_default=False)
     delete_key.connect("clicked", self.del_num)
     self.add_style(delete_key,['numpad-cmd-bg','keypad_enter'])
-    grid.attach(delete_key,3,3,1,1)
+    self.grid.attach(delete_key,3,3,1,1)
 
     enter_key = Gtk.Button("ENTER", can_focus=False, can_default=False)
     enter_key.connect("clicked", self.accept_val)
     self.add_style(enter_key,['numpad-cmd-bg','keypad_enter'])
-    grid.attach(enter_key,3,4,1,1)
+    self.grid.attach(enter_key,3,4,1,1)
 
 
     self.signals = []
@@ -2399,6 +3103,55 @@ class ValueEnter(Gtk.Dialog):
     b = a.get_children()
     for but in b:
       self.add_style(but,['dialog-buttons','font-16'])
+
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    #self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
   def key_pressed(self, popup, key_event):
     if key_event.get_keycode().keycode == 13:#Enter
@@ -2420,6 +3173,11 @@ class ValueEnter(Gtk.Dialog):
     for sty in style:
       sc.add_class(sty)
 
+  def load_settings(self,*args):
+    pass
+
+  def save_settings(self,button,auto_close,*args):
+    pass
 
   def btn_pressed(self, key):
     num = int(key.get_label())
@@ -2445,9 +3203,9 @@ class ValueEnter(Gtk.Dialog):
       val = float(val)
     except ValueError:
       return False
-    if not type(self.min) == type(None) and val < self.min:
+    if not type(self.params['min']) == type(None) and val < self.params['min']:
       return False    
-    if not type(self.max) == type(None) and val > self.max:
+    if not type(self.params['max']) == type(None) and val > self.params['max']:
       return False
     return True
   
@@ -2541,11 +3299,11 @@ class PopupConfirm(Gtk.Dialog):
         sc.add_class("dialog-buttons")
         sc.add_class("font-16")
 
-################################ Fix OK button to save before closing
+
 class ChartSettingsPopup(Gtk.Dialog):
   def __init__(self, app,chart):
     Gtk.Dialog.__init__(self, '',None, Gtk.DialogFlags.MODAL,
-                        (Gtk.STOCK_OK, Gtk.ResponseType.YES)
+                        ()
                         )
     self.chart = chart
     self.c_id = self.chart.db_id
@@ -2553,16 +3311,7 @@ class ChartSettingsPopup(Gtk.Dialog):
     self.db_session = self.app.settings_db.session
     self.db_model = self.app.settings_db.models['chart']
     self.Tbl = self.db_model
-    self.set_default_size(300, 300)
-    self.set_border_width(10)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
-    self.set_keep_above(False)
-    self.set_decorated(False)
-    self.content_area = self.get_content_area()
-    self.dialog_window = Gtk.Box(width_request=300,orientation=Gtk.Orientation.VERTICAL)
-    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
-    self.content_area.add(self.dialog_window )
+    self.build_window()
     self.bg_color = [1.0,1.0,1.0,1.0] #default to white
     self.grid_color = [1.0,1.0,1.0,1.0] #default to white
     self.marker1_color = [1.0,0.0,0.0,1.0] #default to red
@@ -2571,10 +3320,43 @@ class ChartSettingsPopup(Gtk.Dialog):
     self.v_grids = 2
     self.marker1_width = 1
     self.marker2_width = 1
+
+
+    self.content_area = self.get_content_area()
+    self.dialog_window = Gtk.Box(width_request=300,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window )
+    ### - Title Bar- ###
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+
+    ### - Base Area- ###
+    self.grid = Gtk.Grid(column_spacing=3, row_spacing=4, column_homogeneous=False, row_homogeneous=True,)
+    self.dialog_window.pack_start(self.grid,1,1,1)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+    self.load_settings()
     self.build_header()
-    self.load_chart_settings()
     self.build_base()
+    self.build_footer()
     self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(300, 300)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
 
   def build_header(self,*args):
     #Save Button
@@ -2586,7 +3368,7 @@ class ChartSettingsPopup(Gtk.Dialog):
     sc.add_class('ctrl-button')
     bx = Gtk.Box()
     bx.pack_end(self.save_button,0,0,0)
-    self.title_bar.pack_start(bx,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
     self.save_button.connect('clicked',self.save_settings)
 
     #title
@@ -2603,17 +3385,9 @@ class ChartSettingsPopup(Gtk.Dialog):
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     self.exit_button.add(image)
-    self.title_bar.pack_end(self.exit_button,0,0,1)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
     sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
-
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    self.dialog_window.pack_start(divider,0,0,1)
-    self.grid = Gtk.Grid(column_spacing=3, row_spacing=4, column_homogeneous=False, row_homogeneous=True,)
-    self.dialog_window.pack_start(self.grid,1,1,1)
 
   def build_base(self,*args):
     #Chart Select
@@ -2658,7 +3432,7 @@ class ChartSettingsPopup(Gtk.Dialog):
     but.add(self.hor_grid)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.hor_grid,{'min':0,'max':8,'type':int,'polarity':False})
+    but.connect('clicked',self.open_numpad,self.hor_grid,{'min':0,'max':8,'type':int,'polarity':False,'name':'Horizontal Grid Lines'})
     self.grid.attach(but,1,3,1,1)
     #but.connect('clicked',self.row_changed)
 
@@ -2673,7 +3447,7 @@ class ChartSettingsPopup(Gtk.Dialog):
     but.add(self.vert_grid)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.vert_grid,{'min':0,'max':8,'type':int,'polarity':False})
+    but.connect('clicked',self.open_numpad,self.vert_grid,{'min':0,'max':8,'type':int,'polarity':False,'name':'Vertical Grid Lines'})
     self.grid.attach(but,1,4,1,1)
     #but.connect('clicked',self.row_changed)
 
@@ -2705,7 +3479,7 @@ class ChartSettingsPopup(Gtk.Dialog):
     but.add(self.marker1_width_button)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.marker1_width_button,{'min':0,'max':8,'type':int,'polarity':False})
+    but.connect('clicked',self.open_numpad,self.marker1_width_button,{'min':0,'max':8,'type':int,'polarity':False,'name':'Marker 1 Width'})
     self.grid.attach(but,1,6,1,1)
     #but.connect('clicked',self.row_changed)
 
@@ -2733,7 +3507,7 @@ class ChartSettingsPopup(Gtk.Dialog):
     but.add(self.marker2_width_button)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.marker2_width_button,{'min':0,'max':8,'type':int,'polarity':False})
+    but.connect('clicked',self.open_numpad,self.marker2_width_button,{'min':0,'max':8,'type':int,'polarity':False,'name':'Marker 2 Width'})
     self.grid.attach(but,1,7,1,1)
     #but.connect('clicked',self.row_changed)
 
@@ -2753,7 +3527,56 @@ class ChartSettingsPopup(Gtk.Dialog):
     sep = Gtk.Label(height_request=3)
     self.dialog_window.pack_start(sep,1,1,1)
 
-  def load_chart_settings(self,*args):
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,self.c_id,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,self.c_id,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+  def load_settings(self,*args):
     settings = self.db_session.query(self.Tbl).filter(self.Tbl.id == int(self.c_id)).first()
     if settings:
       self.bg_color = json.loads(settings.bg_color) #rgb in json
@@ -2767,7 +3590,6 @@ class ChartSettingsPopup(Gtk.Dialog):
     else:
       print("Chart Not Found")
       #using default values
-
   def confirm(self, button,pen_id,msg="Are you sure you want to delete this pen?", args=[]):
     popup = PopupConfirm(self, msg=msg)
     response = popup.run()
@@ -2781,7 +3603,7 @@ class ChartSettingsPopup(Gtk.Dialog):
   def new_chart_selected(self, but,*args):
     val = self.chart_select.get_active_text()
     self.c_id = int(val)
-    self.load_chart_settings()
+    self.load_settings()
     self.vert_grid.set_label(str(self.v_grids))
     self.hor_grid.set_label(str(self.h_grids))
     bg_rgbcolor = Gdk.RGBA()
@@ -2808,8 +3630,8 @@ class ChartSettingsPopup(Gtk.Dialog):
     marker2_rgbcolor.blue = float(self.marker2_color[2])
     marker2_rgbcolor.alpha = float(self.marker2_color[3])
     self.marker2_color_button.set_rgba (marker2_rgbcolor)
-  
-  def save_settings(self,but,*args):
+
+  def save_settings(self,but,chart_id,auto_close,*args):
     self.c_id = int(self.chart_select.get_active_text())
     bg_color = self.color_button.get_rgba()
     bg_color_list = []
@@ -2843,6 +3665,8 @@ class ChartSettingsPopup(Gtk.Dialog):
       settings.marker2_color =  json.dumps(marker2_color_list)
       self.db_session.commit()
     self.app.charts[self.c_id].reload_chart()
+    if auto_close:
+      self.close_popup()
 
   def remove_widgets(self,*args):
     grid = self.grid.get_children()
@@ -2871,30 +3695,50 @@ class ChartSettingsPopup(Gtk.Dialog):
 class TimeSpanPopup(Gtk.Dialog):
   def __init__(self, app,chart):
     Gtk.Dialog.__init__(self, '',None, Gtk.DialogFlags.MODAL,
-                        (Gtk.STOCK_OK, Gtk.ResponseType.YES)
+                        ()
                         )
     self.app = app
-    self.set_default_size(300, 300)
-    self.set_border_width(10)
-    sc = self.get_style_context()
-    sc.add_class("dialog-border")
-    self.set_keep_above(False)
-    self.set_decorated(False)
+    self.chart = chart
+    self.c_id = self.chart.db_id
+    self.db_session = self.app.settings_db.session
+    self.db_model = self.app.settings_db.models['chart']
+    self.Tbl = self.db_model
+    self.build_window()
     self.content_area = self.get_content_area()
     self.dialog_window = Gtk.Box(width_request=300,orientation=Gtk.Orientation.VERTICAL)
-    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
     self.content_area.add(self.dialog_window )
-    self.bg_color = [1.0,1.0,1.0,1.0] #default to white
-    self.grid_color = [1.0,1.0,1.0,1.0] #default to white
-    self.marker1_color = [1.0,0.0,0.0,1.0] #default to red
-    self.marker2_color = [0.0,1.0,0.0,1.0] #default to blue
-    self.h_grids = 2
-    self.v_grids = 2
-    self.marker1_width = 1
-    self.marker2_width = 1
+    ### - Title Bar- ###
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+
+    ### - Base Area- ###
+    self.base_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    self.dialog_window.pack_start(self.base_area, 0, 0, 0)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
     self.build_header()
     self.build_base()
+    self.build_footer()
+    self.load_settings()
     self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(300, 300)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
 
   def build_header(self,*args):
     #Save Button
@@ -2906,13 +3750,14 @@ class TimeSpanPopup(Gtk.Dialog):
     sc.add_class('ctrl-button')
     bx = Gtk.Box()
     bx.pack_end(self.save_button,0,0,0)
-    self.title_bar.pack_start(bx,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    self.save_button.connect('clicked',self.save_settings,self.c_id)
 
     #title
     title = Gtk.Label(label='Chart Time')
     sc = title.get_style_context()
     sc.add_class('text-black-color')
-    sc.add_class('font-18')
+    sc.add_class('font-22')
     sc.add_class('font-bold')
     self.title_bar.pack_start(title,1,1,1)
 
@@ -2922,150 +3767,263 @@ class TimeSpanPopup(Gtk.Dialog):
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
     self.exit_button.add(image)
-    self.title_bar.pack_end(self.exit_button,0,0,1)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
     sc = self.exit_button.get_style_context()
     sc.add_class('exit-button')
 
-    self.dialog_window.pack_start(self.title_bar,0,0,1)
+  def build_base(self,*args):
+    #Date / Time Picker
+
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+    #Timespan
+    bx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    lbl = Gtk.Label('Chart {} Timespan (min)'.format(self.c_id))
+    self.add_style(lbl,["Label","font-18",'font-bold'])
+    bx.pack_start(lbl,1,1,1)
+    but = Gtk.Button(width_request = 200)
+    self.timespan = Gtk.Label()
+    self.add_style(self.timespan,['borderless-num-display','font-18','text-black-color'])
+    but.add(self.timespan)
+    sc = but.get_style_context()
+    sc.add_class('ctrl-button')
+    but.connect('clicked',self.open_numpad,self.timespan,{'min':0.0,'max':100000.0,'type':float,'polarity':False,'name':'Timespan (min)'})
+    bx.pack_start(but,0,0,0)
+    self.base_area.pack_start(bx,0,0,0)
+
     divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
     sc = divider.get_style_context()
     sc.add_class('Hdivider')
-    self.dialog_window.pack_start(divider,0,0,1)
-    self.grid = Gtk.Grid(column_spacing=3, row_spacing=4, column_homogeneous=False, row_homogeneous=True,)
-    self.dialog_window.pack_start(self.grid,1,1,1)
+    self.base_area.pack_start(divider,0,0,0)
 
-  def build_base(self,*args):
-    #Chart Select
-    lbl = Gtk.Label('Chart Number')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,1,1,1) 
-    self.chart_select = Gtk.ComboBoxText(width_request = 200,height_request = 30)#hexpand = True
-    self.add_style(self.chart_select,["font-18","list-select","font-bold"])
-    selections = []
-    for num in range(16):
-      self.chart_select.append(str(num+1),str(num+1))
-    self.chart_select.set_active(1)
-    self.grid.attach(self.chart_select,1,1,1,1)
-    #self.chart_select.connect("changed", self.new_chart_selected)
-
-    #color
-    lbl = Gtk.Label('Background Color')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,2,1,1) 
-    rgbcolor = Gdk.RGBA()
-    rgbcolor.red = float(self.bg_color[0])
-    rgbcolor.green = float(self.bg_color[1])
-    rgbcolor.blue = float(self.bg_color[2])
-    rgbcolor.alpha = float(self.bg_color[3])
-    bx = Gtk.Box()
-    self.color_button = Gtk.ColorButton(width_request = 50)
-    self.color_button.set_rgba (rgbcolor)
-    sc = self.color_button.get_style_context()
-    sc.add_class('ctrl-button')
-    bx.set_center_widget(self.color_button)
-    self.grid.attach(bx,1,2,1,1)
-
-    #Horizontal Grid LInes
-    lbl = Gtk.Label('Horizontal Grid Lines')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,3,1,1) 
-    but = Gtk.Button(width_request = 20)
-    self.hor_grid = Gtk.Label()
-    self.hor_grid.set_label(str(self.h_grids))
-    self.add_style(self.hor_grid,['borderless-num-display','font-14','text-black-color'])
-    but.add(self.hor_grid)
+    header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    lbl = Gtk.Label('Set Date / Time')
+    self.add_style(lbl,["Label","font-22",'font-bold','text-black-color'])
+    header_box.pack_start(lbl,1,1,1)
+    #set current button
+    but = Gtk.Button(width_request = 100)
+    set_current = Gtk.Label()
+    set_current.set_label('Set Current')
+    self.add_style(set_current,['borderless-num-display','font-18','text-black-color'])
+    but.add(set_current)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.hor_grid,{'min':0,'max':8,'type':int,'polarity':False})
-    self.grid.attach(but,1,3,1,1)
+    but.connect('clicked',self.load_current_time)
+    header_box.pack_start(but,0,0,0)
+    self.base_area.pack_start(header_box,1,1,1)
 
-    #Vertical Grid Lines
-    lbl = Gtk.Label('Vertical Grid Lines')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,4,1,1) 
-    but = Gtk.Button(width_request = 20)
-    self.vert_grid = Gtk.Label()
-    self.vert_grid.set_label(str(self.v_grids))
-    self.add_style(self.vert_grid,['borderless-num-display','font-14','text-black-color'])
-    but.add(self.vert_grid)
+    self.hours = Gtk.SpinButton(orientation=Gtk.Orientation.VERTICAL,width_request = 80)
+    self.hours.set_adjustment(Gtk.Adjustment(value=1, lower=0, upper=24, step_increment=1))
+    self.hours.props.digits = 0
+    self.add_style(self.hours,['font-36','text-black-color','spinbutton'])
+    self.hours.connect('output', self.show_leading_zeros,1)
+    hbox.pack_start(self.hours,0,0,0)
+
+    lbl = Gtk.Label(':')
+    self.add_style(lbl,['borderless-num-display','font-36','text-black-color','font-bold'])
+    hbox.pack_start(lbl,0,0,0)
+    
+    self.minutes = Gtk.SpinButton(orientation=Gtk.Orientation.VERTICAL,width_request = 80)
+    self.minutes.set_adjustment(Gtk.Adjustment(value=1, lower=0, upper=59,step_increment=1))
+    self.minutes.props.digits = 0
+    self.add_style(self.minutes,['font-36','text-black-color','spinbutton'])
+    self.minutes.connect('output', self.show_leading_zeros,1)
+    hbox.pack_start(self.minutes,0,0,0)
+
+    lbl = Gtk.Label('.')
+    self.add_style(lbl,['borderless-num-display','font-36','text-black-color','font-bold'])
+    hbox.pack_start(lbl,0,0,0)
+
+    self.seconds = Gtk.SpinButton(orientation=Gtk.Orientation.VERTICAL,width_request = 80)
+    self.seconds.set_adjustment(Gtk.Adjustment(value=1, lower=0, upper=999,step_increment=1))
+    self.seconds.props.digits = 0
+    self.add_style(self.seconds,['font-36','text-black-color','spinbutton'])
+    self.seconds.connect('output', self.show_leading_zeros,2)
+    hbox.pack_start(self.seconds,0,0,0)
+
+    #Blank Line
+    lbl = Gtk.Label('')
+    self.add_style(lbl,['borderless-num-display','font-18','text-black-color'])
+    #hbox.pack_start(lbl,1,1,1)
+
+    hbox.pack_start(vbox,0,0,0)
+
+    bx = Gtk.Box(Gtk.Orientation.HORIZONTAL)
+    self.add_style(bx,['padding'])
+    lbl = Gtk.Label(label='Year ',width_request = 200)
+    lbl.set_xalign(1.0)
+    self.add_style(lbl,["Label","font-18",'font-bold','text-black-color'])
+    bx.pack_start(lbl,0,0,0)
+    self.year = Gtk.SpinButton(width_request = 120)
+    self.year.set_orientation(Gtk.Orientation.HORIZONTAL)
+    self.year.set_adjustment(Gtk.Adjustment(value=2022, lower=1900, upper=2050,step_increment=1))
+    self.add_style(self.year,['font-18','text-black-color','spinbutton'])
+    self.year.props.digits = 0
+    bx.pack_start(self.year,0,0,0)
+    vbox.pack_start(bx,0,0,0)
+
+    bx = Gtk.Box(Gtk.Orientation.HORIZONTAL)
+    self.add_style(bx,['padding'])
+    lbl = Gtk.Label(label = 'Month ',width_request = 200)
+    lbl.set_xalign(1.0)
+    self.add_style(lbl,["Label","font-18",'font-bold','text-black-color'])
+    bx.pack_start(lbl,1,1,1)
+    months = Gtk.ListStore(int,str)
+    lst = ['January','February','March','April','May','June','July','August','September','October','November','December']
+    for num in range(len(lst)):
+      months.append([num+1,lst[num]])
+    self.months = Gtk.ComboBox.new_with_model(months)
+    renderer_text = Gtk.CellRendererText()
+    self.months.pack_start(renderer_text, True)
+    self.months.add_attribute(renderer_text, "text", 1)
+    self.months.connect("changed", self.on_month_combo_changed)
+    self.add_style(self.months,['font-18','text-black-color'])
+    bx.pack_start(self.months,0,0,0)
+    vbox.pack_start(bx,0,0,0)
+
+    bx = Gtk.Box(Gtk.Orientation.HORIZONTAL)
+    self.add_style(bx,['padding'])
+    lbl = Gtk.Label(label = 'Day ',width_request = 200)
+    lbl.set_xalign(1.0)
+    self.add_style(lbl,["Label","font-18",'font-bold','text-black-color'])
+    bx.pack_start(lbl,1,1,1)
+    self.day = Gtk.SpinButton(width_request = 120)
+    self.day.set_orientation(Gtk.Orientation.HORIZONTAL)
+    self.day.set_adjustment(Gtk.Adjustment(value=1, lower=1, upper=30,step_increment=1))
+    self.day.props.digits = 0
+    self.add_style(self.day,['font-18','text-black-color','spinbutton'])
+    bx.pack_start(self.day,0,0,0)
+    vbox.pack_start(bx,0,0,0)
+    self.base_area.pack_start(hbox, 0, 0, 0)
+
+    #Synchronize All Chart Times
+    but = Gtk.Button(width_request = 100)
+    self.sync_charts = Gtk.Label()
+    self.sync_charts.set_label('Synchronize All Chart Times')
+    but.connect("clicked", self.update_all_chart_times)
+    self.add_style(self.sync_charts,['borderless-num-display','font-18','text-black-color'])
+    but.add(self.sync_charts)
     sc = but.get_style_context()
     sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.vert_grid,{'min':0,'max':8,'type':int,'polarity':False})
-    self.grid.attach(but,1,4,1,1)
+    self.base_area.pack_start(but, 0, 0, 0)
 
-    #grid color
-    lbl = Gtk.Label('Grid Line Color')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,5,1,1) 
-    rgbcolor = Gdk.RGBA()
-    rgbcolor.red = float(self.grid_color[0])
-    rgbcolor.green = float(self.grid_color[1])
-    rgbcolor.blue = float(self.grid_color[2])
-    rgbcolor.alpha = float(self.grid_color[3])
-    bx = Gtk.Box()
-    self.grid_color_button = Gtk.ColorButton(width_request = 50)
-    self.grid_color_button.set_rgba (rgbcolor)
-    sc = self.grid_color_button.get_style_context()
-    sc.add_class('ctrl-button')
-    bx.set_center_widget(self.grid_color_button)
-    self.grid.attach(bx,1,5,1,1)
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-    #Marker 1
-    lbl = Gtk.Label('Chart Marker 1 (Width/Color)')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,6,1,1) 
-    but = Gtk.Button(width_request = 20)
-    self.marker1_width_button = Gtk.Label()
-    self.marker1_width_button.set_label(str(self.marker1_width))
-    self.add_style(self.marker1_width_button,['borderless-num-display','font-14','text-black-color'])
-    but.add(self.marker1_width_button)
-    sc = but.get_style_context()
-    sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.marker1_width_button,{'min':0,'max':8,'type':int,'polarity':False})
-    self.grid.attach(but,1,6,1,1)
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,self.c_id,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-    rgbcolor = Gdk.RGBA()
-    rgbcolor.red = float(self.marker1_color[0])
-    rgbcolor.green = float(self.marker1_color[1])
-    rgbcolor.blue = float(self.marker1_color[2])
-    rgbcolor.alpha = float(self.marker1_color[3])
-    bx = Gtk.Box()
-    self.marker1_color_button = Gtk.ColorButton(width_request = 50)
-    self.marker1_color_button.set_rgba (rgbcolor)
-    sc = self.marker1_color_button.get_style_context()
-    sc.add_class('ctrl-button')
-    bx.set_center_widget(self.marker1_color_button)
-    self.grid.attach(bx,2,6,1,1)
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,self.c_id,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
 
-    #Marker 2
-    lbl = Gtk.Label('Chart Marker 2 (Width/Color)')
-    self.add_style(lbl,["Label","font-16",'font-bold'])
-    self.grid.attach(lbl,0,7,1,1) 
-    but = Gtk.Button(width_request = 20)
-    self.marker2_width_button = Gtk.Label()
-    self.marker2_width_button.set_label(str(self.marker2_width))
-    self.add_style(self.marker2_width_button,['borderless-num-display','font-14','text-black-color'])
-    but.add(self.marker2_width_button)
-    sc = but.get_style_context()
-    sc.add_class('ctrl-button')
-    but.connect('clicked',self.open_numpad,self.marker2_width_button,{'min':0,'max':8,'type':int,'polarity':False})
-    self.grid.attach(but,1,7,1,1)
+  def load_current_time(self,*args):
+    now = datetime.datetime.now()
+    month = now.month
+    d_t = {'hour':now.hour,'minute':now.minute,'second':now.second,'day':now.day,'month':month,'year':now.year}
+    self.load_time(d_t)
 
-    rgbcolor = Gdk.RGBA()
-    rgbcolor.red = float(self.marker2_color[0])
-    rgbcolor.green = float(self.marker2_color[1])
-    rgbcolor.blue = float(self.marker2_color[2])
-    rgbcolor.alpha = float(self.marker2_color[3])
-    bx = Gtk.Box()
-    self.marker2_color_button = Gtk.ColorButton(width_request = 50)
-    self.marker2_color_button.set_rgba (rgbcolor)
-    sc = self.marker2_color_button.get_style_context()
-    sc.add_class('ctrl-button')
-    bx.set_center_widget(self.marker2_color_button)
-    self.grid.attach(bx,2,7,1,1)
+  def load_time(self,d_t,*args):
+    self.hours.set_value(d_t['hour'])
+    self.minutes.set_value(d_t['minute'])
+    self.seconds.set_value(d_t['second'])
+    self.day.set_value(d_t['day'])
+    self.months.set_active((d_t['month'])-1)
+    self.year.set_value(d_t['year'])
 
-    sep = Gtk.Label(height_request=3)
-    self.dialog_window.pack_start(sep,1,1,1)
+  def update_all_chart_times(self,*args):
+    for c_id in range(self.app.charts_number):
+      self.save_settings('',c_id+1)
+
+  def on_month_combo_changed(self, combo):
+      tree_iter = combo.get_active_iter()
+      if tree_iter is not None:
+          model = combo.get_model()
+          row_id, name = model[tree_iter][:2]
+          #print("Selected: ID=%d, name=%s" % (row_id, name))
+      else:
+          entry = combo.get_child()
+          #print("Entered: %s" % entry.get_text())
+
+  def load_settings(self,*args):
+    settings = self.db_session.query(self.Tbl).filter(self.Tbl.id == int(self.c_id)).first()
+    if settings:
+      self.timespan.set_text(str(settings.time_span))
+      if settings.start_year == 1:
+        self.load_current_time()
+      else:
+        self.hours.set_value(settings.start_hour)
+        self.minutes.set_value(settings.start_minute)
+        self.seconds.set_value(settings.start_second)
+        self.day.set_value(settings.start_day)
+        self.months.set_active((settings.start_month))
+        self.year.set_value(settings.start_year)
+    else:
+      print("Chart Not Found")
+      #using default values
+
+  def save_settings(self,but,chart_id,auto_close,*args):
+    settings = self.db_session.query(self.Tbl).filter(self.Tbl.id == int(chart_id)).first()
+    if settings:
+      settings.time_span =  int(self.timespan.get_label())
+      settings.start_hour =  int(self.hours.get_value())
+      settings.start_minute =  int(self.minutes.get_value())
+      settings.start_second =  int(self.seconds.get_value())
+      settings.start_year =  int(self.year.get_value())
+      settings.start_month =  int(self.months.get_active())
+      settings.start_day =  int(self.day.get_value())
+      self.db_session.commit()
+    self.app.charts[chart_id].reload_chart()
+    if auto_close:
+      self.close_popup()
+
+
+  def show_leading_zeros(obj,spin_button,num,*args):
+    adjustment = spin_button.get_adjustment()
+    if num == 2:
+      spin_button.set_text('{:03d}'.format(int(adjustment.get_value())))
+    else:
+      spin_button.set_text('{:02d}'.format(int(adjustment.get_value())))
 
   def add_style(self, item,style):
     sc = item.get_style_context()

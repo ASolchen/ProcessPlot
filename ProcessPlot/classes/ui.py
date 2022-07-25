@@ -42,6 +42,7 @@ class MainWindow(Gtk.Window):
     self.set_border_width(10)
     self.set_decorated(False)
     self.maximize()
+    self.settings_popout_displayed = False
     cssProvider = Gtk.CssProvider()
     cssProvider.load_from_path(os.path.join(PUBLIC_DIR, 'css/style.css'))
     screen = Gdk.Screen.get_default()
@@ -147,127 +148,132 @@ class MainWindow(Gtk.Window):
     self.save_settings()
 
   def build_settings_popout(self,*args):
+    if self.settings_popout_displayed:
+      #If already popped out then remove
+      self.remove_settings_popout()
+    else:
+      self.settings_popout_displayed = True
+      settings_popout_width = 300
+      self.settings_window = Gtk.Box(width_request=settings_popout_width,orientation=Gtk.Orientation.VERTICAL)
+      self.settings_title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=settings_popout_width)
 
-    settings_popout_width = 300
-    self.settings_window = Gtk.Box(width_request=settings_popout_width,orientation=Gtk.Orientation.VERTICAL)
-    self.settings_title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=settings_popout_width)
+      #header
+      title = Gtk.Label(label = 'Settings')
+      sc = title.get_style_context()
+      sc.add_class('text-black-color')
+      sc.add_class('font-18')
+      sc.add_class('font-bold')
+      self.settings_title_bar.pack_start(title,1,1,1)
+      self.pin_button = Gtk.Button(width_request = 20)
+      self.pin_button.connect('clicked',self.remove_settings_popout)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/pin.png', 20, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      self.pin_button.add(image)
+      self.settings_title_bar.pack_start(self.pin_button,0,0,1)
+      sc = self.pin_button.get_style_context()
+      sc.add_class('ctrl-button')
+      self.settings_window.pack_start(self.settings_title_bar,0,0,1)
 
-    #header
-    title = Gtk.Label(label = 'Settings')
-    sc = title.get_style_context()
-    sc.add_class('text-black-color')
-    sc.add_class('font-18')
-    sc.add_class('font-bold')
-    self.settings_title_bar.pack_start(title,1,1,1)
-    self.pin_button = Gtk.Button(width_request = 20)
-    self.pin_button.connect('clicked',self.remove_settings_popout)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/pin.png', 20, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    self.pin_button.add(image)
-    self.settings_title_bar.pack_start(self.pin_button,0,0,1)
-    sc = self.pin_button.get_style_context()
-    sc.add_class('ctrl-button')
-    self.settings_window.pack_start(self.settings_title_bar,0,0,1)
+      self.ctrl_button_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=30,width_request=300)
 
-    self.ctrl_button_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=30,width_request=300)
+      self.conn_button = Gtk.Button(width_request = 30)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Connection.png'), 30, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      self.conn_button.add(image)
+      self.ctrl_button_bar.add(self.conn_button)
+      sc = self.conn_button.get_style_context()
+      sc.add_class('ctrl-button')
+      self.conn_button.connect('clicked',self.open_popup,"connection",self.app)
 
-    self.conn_button = Gtk.Button(width_request = 30)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Connection.png'), 30, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    self.conn_button.add(image)
-    self.ctrl_button_bar.add(self.conn_button)
-    sc = self.conn_button.get_style_context()
-    sc.add_class('ctrl-button')
-    self.conn_button.connect('clicked',self.open_popup,"connection",self.app)
+      #Tag Button
+      self.point_button = Gtk.Button(width_request = 30)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Tag.png'), 30, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      self.point_button.add(image)
+      self.ctrl_button_bar.add(self.point_button)
+      sc = self.point_button.get_style_context()
+      sc.add_class('ctrl-button')
+      self.point_button.connect('clicked',self.open_popup,"point",self.app)
 
-    #Tag Button
-    self.point_button = Gtk.Button(width_request = 30)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Tag.png'), 30, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    self.point_button.add(image)
-    self.ctrl_button_bar.add(self.point_button)
-    sc = self.point_button.get_style_context()
-    sc.add_class('ctrl-button')
-    self.point_button.connect('clicked',self.open_popup,"point",self.app)
+      #Pen Settings Button
+      self.pen_settings_button = Gtk.Button(width_request = 30)
+      self.pen_settings_button.connect('clicked',self.open_popup,"pen",self.app)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Create.png'), 30, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      self.pen_settings_button.add(image)
+      self.ctrl_button_bar.add(self.pen_settings_button)
+      sc = self.pen_settings_button.get_style_context()
+      sc.add_class('ctrl-button')
 
-    #Pen Settings Button
-    self.pen_settings_button = Gtk.Button(width_request = 30)
-    self.pen_settings_button.connect('clicked',self.open_popup,"pen",self.app)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Create.png'), 30, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    self.pen_settings_button.add(image)
-    self.ctrl_button_bar.add(self.pen_settings_button)
-    sc = self.pen_settings_button.get_style_context()
-    sc.add_class('ctrl-button')
+      self.settings_window.pack_start(self.ctrl_button_bar,0,0,1)
+      divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+      sc = divider.get_style_context()
+      sc.add_class('Hdivider')
+      self.settings_window.pack_start(divider,0,0,1)
+      
+      #Settings Data
 
-    self.settings_window.pack_start(self.ctrl_button_bar,0,0,1)
-    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    sc = divider.get_style_context()
-    sc.add_class('Hdivider')
-    self.settings_window.pack_start(divider,0,0,1)
-    
-    #Settings Data
+      self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,width_request=settings_popout_width,height_request = 800)
+      scroll = Gtk.ScrolledWindow(height_request = 800)
+      lbl = Gtk.Label(label = 'App Settings')
+      sc = lbl.get_style_context()
+      sc.add_class('settings-description')
+      self.settings_data = Gtk.Box(width_request=settings_popout_width,orientation=Gtk.Orientation.VERTICAL,height_request = 800, spacing = 10)
+      self.settings_data.pack_start(lbl,0,0,1)
+      scroll.add(self.settings_data)
+      self.settings_box.add(scroll)
+      self.settings_window.pack_start(self.settings_box,1,1,1)
+      
+      settings1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,width_request=settings_popout_width)
+      lbl = Gtk.Label('Number of Charts')
+      sc = lbl.get_style_context()
+      sc.add_class('settings-description')
+      settings1.pack_start(lbl,1,1,1)
+      selections = ["1","2","4","8","16"]
+      self.number_of_charts = Gtk.ComboBoxText()
+      self.number_of_charts.set_entry_text_column(0)
+      self.number_of_charts.connect("changed", self.get_number_of_charts)
+      for x in selections:
+          self.number_of_charts.append_text(x)
+      try:
+        idx = selections.index(str(self.numCharts))
+      except IndexError:
+        idx = 0
+      self.number_of_charts.set_active(idx)
+      settings1.pack_start(self.number_of_charts,0,0,1)
+      self.settings_data.pack_start(settings1,0,0,1)
 
-    self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,width_request=settings_popout_width,height_request = 800)
-    scroll = Gtk.ScrolledWindow(height_request = 800)
-    lbl = Gtk.Label(label = 'App Settings')
-    sc = lbl.get_style_context()
-    sc.add_class('settings-description')
-    self.settings_data = Gtk.Box(width_request=settings_popout_width,orientation=Gtk.Orientation.VERTICAL,height_request = 800, spacing = 10)
-    self.settings_data.pack_start(lbl,0,0,1)
-    scroll.add(self.settings_data)
-    self.settings_box.add(scroll)
-    self.settings_window.pack_start(self.settings_box,1,1,1)
-    
-    settings1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,width_request=settings_popout_width)
-    lbl = Gtk.Label('Number of Charts')
-    sc = lbl.get_style_context()
-    sc.add_class('settings-description')
-    settings1.pack_start(lbl,1,1,1)
-    selections = ["1","2","4","8","16"]
-    self.number_of_charts = Gtk.ComboBoxText()
-    self.number_of_charts.set_entry_text_column(0)
-    self.number_of_charts.connect("changed", self.get_number_of_charts)
-    for x in selections:
-        self.number_of_charts.append_text(x)
-    try:
-      idx = selections.index(str(self.numCharts))
-    except IndexError:
-      idx = 0
-    self.number_of_charts.set_active(idx)
-    settings1.pack_start(self.number_of_charts,0,0,1)
-    self.settings_data.pack_start(settings1,0,0,1)
+      settings2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,width_request=settings_popout_width)
+      lbl = Gtk.Label('App Theme Dark')
+      sc = lbl.get_style_context()
+      sc.add_class('settings-description')
+      settings2.pack_start(lbl,1,1,1)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      wid =CheckBoxWidget(30,30,image,self.dark_mode)
+      t_button = wid.return_self()
+      t_button.connect("toggled", self.get_dark_toggle)
+      settings2.pack_start(t_button,0,0,1)
+      self.settings_data.pack_start(settings2,0,0,1)
 
-    settings2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,width_request=settings_popout_width)
-    lbl = Gtk.Label('App Theme Dark')
-    sc = lbl.get_style_context()
-    sc.add_class('settings-description')
-    settings2.pack_start(lbl,1,1,1)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    wid =CheckBoxWidget(30,30,image,self.dark_mode)
-    t_button = wid.return_self()
-    t_button.connect("toggled", self.get_dark_toggle)
-    settings2.pack_start(t_button,0,0,1)
-    self.settings_data.pack_start(settings2,0,0,1)
-
-    settings3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,width_request=settings_popout_width)
-    lbl = Gtk.Label('Run App Headless')
-    sc = lbl.get_style_context()
-    sc.add_class('settings-description')
-    settings3.pack_start(lbl,1,1,1)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    wid =CheckBoxWidget(30,30,image,self.headless_mode)
-    t_button = wid.return_self()
-    t_button.connect("toggled", self.get_headless_toggle)
-    settings3.pack_start(t_button,0,0,1)
-    self.settings_data.pack_start(settings3,0,0,1)
-    
-    self.settings_popout.pack_start(self.settings_window,1,1,1)
-    self.big_box.show_all()
+      settings3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,width_request=settings_popout_width)
+      lbl = Gtk.Label('Run App Headless')
+      sc = lbl.get_style_context()
+      sc.add_class('settings-description')
+      settings3.pack_start(lbl,1,1,1)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR, 'images/Check.png'), 20, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      wid =CheckBoxWidget(30,30,image,self.headless_mode)
+      t_button = wid.return_self()
+      t_button.connect("toggled", self.get_headless_toggle)
+      settings3.pack_start(t_button,0,0,1)
+      self.settings_data.pack_start(settings3,0,0,1)
+      
+      self.settings_popout.pack_start(self.settings_window,1,1,1)
+      self.big_box.show_all()
   
   def remove_settings_popout(self,*args):
+    self.settings_popout_displayed = False
     wid = self.settings_popout.get_children()
     for item in wid:
       self.settings_popout.remove(item)
@@ -280,16 +286,6 @@ class MainWindow(Gtk.Window):
 
   def build_chart_ctrl(self):
     trend_control_panel = Gtk.Box(width_request=40,height_request=400,orientation=Gtk.Orientation.VERTICAL)
-
-    #TimeSpan Button
-    self.clock_button = Gtk.Button(width_request = 40)
-    self.clock_button.connect('clicked',self.open_popup,"timespan",self.app)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR,'images/Clock.png'), 40, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    self.clock_button.add(image)
-    trend_control_panel.add(self.clock_button)
-    sc = self.clock_button.get_style_context()
-    sc.add_class('ctrl-button')
 
     #Pan Button
     self.pan_button = Gtk.Button(width_request = 40)

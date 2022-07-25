@@ -30,7 +30,7 @@ from OpenGL.GL import *
 from OpenGL.GL import shaders
 from classes.pen import Pen
 import json, ast
-from classes.popup import ChartSettingsPopup
+from classes.popup import ChartSettingsPopup, TimeSpanPopup
 
 __all__ = ['Chart']
 PUBLIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),  'Public')
@@ -95,6 +95,13 @@ class Chart(Gtk.GLArea):
     self.marker2_color = [0.0,1.0,0.0,1.0] #default to blue
     self.marker1_width = 1
     self.marker2_width = 1
+    self.time_span = 1
+    self.start_hour = 12
+    self.start_minute = 1
+    self.start_second = 1
+    self.start_year = 2022
+    self.start_month = 1
+    self.start_day = 1
     #settings
     self.load_settings()
     self.load_pen_settings()
@@ -142,6 +149,13 @@ class Chart(Gtk.GLArea):
       self.marker1_color = json.loads(settings.marker1_color) #rgb in json
       self.marker2_width = settings.marker2_width
       self.marker2_color = json.loads(settings.marker2_color) #rgb in json
+      self.time_span = settings.time_span
+      self.start_hour = settings.start_hour
+      self.start_minute = settings.start_minute
+      self.start_second = settings.start_second
+      self.start_year = settings.start_year
+      self.start_month = settings.start_month
+      self.start_day = settings.start_day
     else:
       #create chart settings in db if they don't exist
       new = tbl(id = self.db_id)
@@ -157,6 +171,13 @@ class Chart(Gtk.GLArea):
       self.marker1_color = json.loads(new.marker1_color) #rgb in json
       self.marker2_width = new.marker2_width
       self.marker2_color = json.loads(new.marker2_color) #rgb in json
+      self.time_span = new.time_span
+      self.start_hour = new.start_hour
+      self.start_minute = new.start_minute
+      self.start_second = new.start_second
+      self.start_year = new.start_year
+      self.start_month = new.start_month
+      self.start_day = new.start_day
 
   def reload_chart(self):
     self.load_settings()
@@ -186,6 +207,13 @@ class Chart(Gtk.GLArea):
       entry.marker1_color = json.dumps(self.marker1_color)
       entry.marker2_width=self.marker2_width
       entry.marker2_color = json.dumps(self.marker2_color)
+      entry.time_span=self.time_span
+      entry.start_hour=self.start_hour
+      entry.start_minute=self.start_minute
+      entry.start_second=self.start_second
+      entry.start_year=self.start_year
+      entry.start_month=self.start_month
+      entry.start_day=self.start_day
     else: #create it
       entry = tbl(
         bg_color = json.dumps(self.bg_color),
@@ -196,12 +224,15 @@ class Chart(Gtk.GLArea):
         marker1_color = json.dumps(self.marker1_color),
         marker2_width=self.marker2_width,
         marker2_color = json.dumps(self.marker2_color),
+        time_span = self.time_span,
+        start_hour = self.start_hour,
+        start_minute = self.start_minute,
+        start_second = self.start_second,
+        start_year = self.start_year,
+        start_month = self.start_month,
+        start_day = self.start_day,
       )
       self.db_session.add(entry)
-    # or 
-    # entry1 = model(bla= "blah")
-    # entry2 = model(bla= "blah, blah")
-    # self.db_session.add_all([entry1, entry2])
     self.db_session.commit()
     self.db_id = entry.id
     
@@ -287,13 +318,15 @@ class ChartControls(Gtk.Box):
       super().__init__(orientation=Gtk.Orientation.VERTICAL)
       self.app = app
       self.chart = chart
+      #Chart settings button
       settings_button = Gtk.Button(width_request = 30)
-      settings_button.connect('clicked',self.open_chart_settings)
       p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR,'images/settings.png'), 30, -1, True)
       image = Gtk.Image(pixbuf=p_buf)
       settings_button.add(image)
       sc = settings_button.get_style_context()
       sc.add_class('ctrl-button')
+      settings_button.connect('clicked',self.open_chart_settings)
+      #Chart play button
       play_button = Gtk.Button(width_request = 30)
       p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR,'images/play.png'), 30, -1, True)
       image = Gtk.Image(pixbuf=p_buf)
@@ -301,14 +334,24 @@ class ChartControls(Gtk.Box):
       sc = play_button.get_style_context()
       sc.add_class('ctrl-button')
       play_button.connect('clicked', chart.toggle_running)
+      #TimeSpan Button
+      clock_button = Gtk.Button(width_request = 30)
+      p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(os.path.join(PUBLIC_DIR,'images/Clock.png'), 40, -1, True)
+      image = Gtk.Image(pixbuf=p_buf)
+      clock_button.add(image)
+      sc = clock_button.get_style_context()
+      sc.add_class('ctrl-button')
+      clock_button.connect('clicked',self.open_chart_timespan)
       button_row = Gtk.Box()
       for widget in [
         (Gtk.Box(),1,1,1),
         (settings_button,0,0,1),
         (play_button,0,0,1),
+        (clock_button,0,0,1),
         (Gtk.Box(),1,1,1)]:
         button_row.pack_start(*widget)
       for widget_row in [
+        (Gtk.Box(),1,1,1),
         (Gtk.Box(),1,1,1),
         (Gtk.Box(),1,1,1),
         (Gtk.Box(),1,1,1),
@@ -318,6 +361,16 @@ class ChartControls(Gtk.Box):
       
   def open_chart_settings(self,*args):
     popup = ChartSettingsPopup(self.app,self.chart)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
+
+  def open_chart_timespan(self,*args):
+    #self.clock_button.connect('clicked',self.open_popup,"timespan",self.app)
+    popup = TimeSpanPopup(self.app,self.chart)
     response = popup.run()
     popup.destroy()
     if response == Gtk.ResponseType.YES:

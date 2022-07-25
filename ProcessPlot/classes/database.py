@@ -52,6 +52,13 @@ class ChartSettings(SettingsBase):
     marker1_color = Column(String, default = '[0.0,1.0,0.0,1.0]') #rgb in json    
     marker2_width = Column(Integer, default = 1)
     marker2_color = Column(String, default = '[1.0,0.0,0.0,1.0]') #rgb in json
+    time_span = Column(Integer, default = 1)
+    start_hour = Column(Integer, default = 1)
+    start_minute = Column(Integer, default = 1)
+    start_second = Column(Integer, default = 1)
+    start_year = Column(Integer, default = 1)
+    start_month = Column(Integer, default = 1)
+    start_day = Column(Integer, default = 1)
     #other cols
 
 class PenSettings(SettingsBase):
