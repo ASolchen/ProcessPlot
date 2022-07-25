@@ -1,5 +1,6 @@
 import logging, os, time
-from classes.data_manager import DataManager
+import gi
+from ProcessLink.process_link import ProcessLink
 from classes.ui import MainWindow
 from classes.database import DataDb, SettingsDb, ConnectionsDb
 from classes.ui import MainWindow
@@ -9,8 +10,18 @@ PUBLIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),  'Public')
 class App(object):
   __log = logging.getLogger('ProcessPlot.classes.app')
   def __init__(self):
+    self.link = ProcessLink()
+    self.link.set("db_file", "connections.db")
+    self.link.load_db()
+
+    # c = self.link.new_connection({"id": "Turbine",
+    #                       "connection_type": "logix",
+    #                        "description": "Governor",
+    #                        "host": '192.168.1.169'
+    #                       })
+    # self.link.save_connection(c)
+
     self.data_db = DataDb()
-    self.data_manager = DataManager(self)
     self.settings_db = SettingsDb()
     self.connections_db = ConnectionsDb()
     has_ui = True
