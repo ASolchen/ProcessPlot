@@ -24,6 +24,9 @@ from enum import auto
 from http.client import PARTIAL_CONTENT
 from logging.config import valid_ident
 from pkgutil import iter_modules
+import numpy
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 from urllib.parse import non_hierarchical
 import gi, os, json, datetime, time
@@ -114,6 +117,24 @@ class BaseSettingsPopoup(Gtk.Dialog):
 
   def build_footer(self):
     pass
+
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
+
+  def open_numpad(self,button,widget_obj,params,*args):
+    numpad = ValueEnter(self,widget_obj,params)
+    response = numpad.run()
+    if response == Gtk.ResponseType.NO:
+      pass
+    else:
+      pass
+    numpad.destroy()
 
 ################################ change styling of connect toggle button , add connect to conx database
 ################################ create import/export popups
@@ -568,7 +589,6 @@ class Pen_row(object):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
   
   def row_changed(self,*args):
@@ -790,7 +810,7 @@ class TagMainPopup(Gtk.Dialog):
     sc = tag_export.get_style_context()
     sc.add_class('ctrl-button')
     self.title_bar.pack_start(tag_export,0,0,0)
-    #tag_export.connect('clicked',self.add_tag_popup,None,self.connections_available)
+    tag_export.connect('clicked',self.fileChooser_save)
 
     title = Gtk.Label(label=title,width_request = 500)
     sc = title.get_style_context()
@@ -861,6 +881,54 @@ class TagMainPopup(Gtk.Dialog):
     #header
     self.add_tag_rows(self.tag_filter_val)
     self.show_all()
+
+  def fileChooser_save(self, callback, filt_pattern = ["*.xsls"]):
+    #Need to update to use callback instead of export tags and then add to base as just fileChooser_save
+    save_dialog = Gtk.FileChooserDialog("Save As", self,
+                                        Gtk.FileChooserAction.SAVE,
+                                        (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                          Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+    save_dialog.set_current_name('Tags_Export')
+    filter = Gtk.FileFilter()
+    filter.set_name("All files")
+    for pat in filt_pattern:
+        filter.add_pattern(pat)
+    save_dialog.add_filter(filter)
+    response = save_dialog.run()
+    if response == Gtk.ResponseType.OK:
+        tag_filter = "Machine"
+        file_name = save_dialog.get_filename()
+        self.export_tags(file_name,tag_filter)
+    else:
+        # don't bother building the window
+        self.destroy()
+    save_dialog.destroy()
+  
+  def export_tags(self,directory_name,t_filter,*args):
+    #Need Tags export popup for selecting which connection
+    #Need to deal with only importing tags to connections which are stopped
+    file_name_suffix = 'xlsx'
+    dest_filename = os.path.join(directory_name +"." + file_name_suffix)
+    wb = Workbook()
+    if self.tags_available[t_filter]: #checks if dictionary of tags is not empty
+      sheet = wb.active
+      sheet.title = t_filter
+      for num in self.tags_available[t_filter]:
+          columns = list(self.tags_available[t_filter][num].keys()) #get tag column headers
+      sheet.append(columns)
+      num_tags = len(self.tags_available[t_filter])
+      for x in range(len(self.tags_available[t_filter])): #fill table with number of tags available in connection
+        row = list(self.tags_available[t_filter][x+1].values())
+        #sheet.cell(column=c, row=(x+2), value=self.tags_available[t_filter][x+1][header])
+        sheet.append(row)
+    else:
+      self.display_msg(msg="No Tags In Connection To Export")
+    try:
+      wb.save(filename = dest_filename)
+      self.display_msg(msg="Exported {} Tags To File".format(num_tags))
+    except:
+      self.display_msg(msg="Save Failed")
+      print('Save Failed')
 
   def tree_item_clicked(self, treeview, event):
     pthinfo = treeview.get_path_at_pos(event.x, event.y)
@@ -1129,6 +1197,15 @@ class TagMainPopup(Gtk.Dialog):
     self.get_available_tags('c_id')
     self.add_tag_rows(self.tag_filter_val)
     self.show_all()
+
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
 
   def create_tag(self,params,*args):
     #sNEED TO HAVE IT PASS IN SOMEThing FOR THE ADDRESS EXCEPT 12
@@ -1744,7 +1821,6 @@ class TagSettingsPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
 
 
@@ -2936,7 +3012,6 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
   
 
@@ -3269,6 +3344,41 @@ class PopupConfirm(Gtk.Dialog):
       Gtk.Dialog.__init__(self, "Confirm?", parent, Gtk.DialogFlags.MODAL,
                           (Gtk.STOCK_YES, Gtk.ResponseType.YES,
                             Gtk.STOCK_NO, Gtk.ResponseType.NO)
+                          )
+      self.set_default_size(300, 200)
+      self.set_border_width(10)
+      sc = self.get_style_context()
+      sc.add_class("dialog-border")
+      self.set_keep_above(True)
+      self.set_decorated(False)
+      box = Gtk.Box()
+      box.set_spacing(10)
+      box.set_orientation(Gtk.Orientation.VERTICAL)
+      c = self.get_content_area()
+      c.add(box)
+      box.pack_start(Gtk.Image(stock=Gtk.STOCK_DIALOG_WARNING), 0, 0, 0)
+      confirm_msg = Gtk.Label(msg + '\n\n')
+      sc = confirm_msg.get_style_context()
+      sc.add_class('borderless-num-display')
+      sc.add_class('text-black-color')
+      sc.add_class('font-20')
+      box.pack_start(confirm_msg, 0, 0, 0)
+      sep = Gtk.Label(height_request=3)
+      c.pack_start(sep,1,1,1)
+      self.show_all()
+      #Add style to dialog buttons
+      a = self.get_action_area()
+      b = a.get_children()
+      for but in b:
+        sc = but.get_style_context()
+        sc.add_class("dialog-buttons")
+        sc.add_class("font-16")
+
+
+class PopupMessage(Gtk.Dialog):
+  def __init__(self, parent, msg='No Messaged Generated'):
+      Gtk.Dialog.__init__(self, "Confirm?", parent, Gtk.DialogFlags.MODAL,
+                          (Gtk.STOCK_OK, Gtk.ResponseType.YES)
                           )
       self.set_default_size(300, 200)
       self.set_border_width(10)
@@ -3685,7 +3795,6 @@ class ChartSettingsPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
 
   def close_popup(self, *args):
@@ -4037,7 +4146,6 @@ class TimeSpanPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
 
   def close_popup(self, *args):
