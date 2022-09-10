@@ -20,10 +20,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+from ast import Pass
 from enum import auto
 from http.client import PARTIAL_CONTENT
 from logging.config import valid_ident
 from pkgutil import iter_modules
+import numpy
+from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
 from urllib.parse import non_hierarchical
 import gi, os, json, datetime, time
@@ -115,19 +119,57 @@ class BaseSettingsPopoup(Gtk.Dialog):
   def build_footer(self):
     pass
 
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
+
+  def open_numpad(self,button,widget_obj,params,*args):
+    numpad = ValueEnter(self,widget_obj,params)
+    response = numpad.run()
+    if response == Gtk.ResponseType.NO:
+      pass
+    else:
+      pass
+    numpad.destroy()
+
 ################################ change styling of connect toggle button , add connect to conx database
-################################ create import/export popups
 ################################ When deleting a connection the row stays in the connection specific table
-################################ Create import export tags to excel button
 ################################ Need to update connection toggle buttons on regular basis and when building page
 ################################ Still need to create ledgend on popout
 ################################ Add duplicate button on tag settings popup
 ################################ Need a button for connections to open connect and one for connect all
+################################ Import / Export pen rows
+################################ add pens to legend popout
 
-class PenSettingsPopup(BaseSettingsPopoup):
+
+
+class PenSettingsPopup(Gtk.Dialog):
+#class PenSettingsPopup(BaseSettingsPopoup):
+  # def __init__(self, parent,app):
+  #   self.app = app
+  #   self.chart_filter = 'All'
+  #   self.unsaved_changes_present = False
+  #   self.unsaved_pen_rows = {}
+  #   self.pen_column_names = ['id', 'chart_id', 'tag_id', 'connection_id', 'visible', 
+  #                     'color', 'weight','scale_minimum','scale_maximum', 
+  #                     'scale_lock', 'scale_auto']
+  #   self.db_session = self.app.settings_db.session
+  #   self.db_model = self.app.settings_db.models['pen']
+  #   self.Tbl = self.db_model
+  #   super().__init__(parent,"Pen Settings",app)
 
   def __init__(self, parent,app):
+    super().__init__(transient_for = parent,flags=0) 
     self.app = app
+    self.parent = parent
+    self.tags_available = {}
+    self.connections_available = {}
+    self.pens_available = {}
     self.chart_filter = 'All'
     self.unsaved_changes_present = False
     self.unsaved_pen_rows = {}
@@ -137,10 +179,48 @@ class PenSettingsPopup(BaseSettingsPopoup):
     self.db_session = self.app.settings_db.session
     self.db_model = self.app.settings_db.models['pen']
     self.Tbl = self.db_model
-    super().__init__(parent,"Pen Settings",app)
+    self.build_window()
+    self.content_area = self.get_content_area()
+    self.get_available_tags('c_id')
+    self.get_available_connections()
+    self.get_available_pens()
 
+    self.dialog_window = Gtk.Box(width_request=600,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window)
+    ### -title bar- ####
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    ### -content area- ####
+    self.base_area = Gtk.Box(spacing = 10,orientation=Gtk.Orientation.VERTICAL,margin = 20)
+    self.scroll = Gtk.ScrolledWindow(width_request = 1400,height_request = 600)
+    self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    self.scroll.add(self.base_area)
+    self.dialog_window.pack_start(self.scroll,1,1,1)
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
 
-  
+    self.build_header("Pen Settings")
+    self.build_base()
+    self.build_footer()
+    self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(1400, 600)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
   def build_header(self,title):
     #header
     db_c_num = 'All'
@@ -168,6 +248,24 @@ class PenSettingsPopup(BaseSettingsPopoup):
     sc.add_class('ctrl-button')
     self.title_bar.pack_start(self.add_button,0,0,0)
     self.add_button.connect('clicked',self.create_new_pen)
+
+    pen_import = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Import.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    pen_import.add(image)
+    sc = pen_import.get_style_context()
+    sc.add_class('ctrl-button')
+    self.title_bar.pack_start(pen_import,0,0,0)
+    pen_import.connect('clicked',self.fileChooser_open,"")
+
+    pen_export = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Export.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    pen_export.add(image)
+    sc = pen_export.get_style_context()
+    sc.add_class('ctrl-button')
+    self.title_bar.pack_start(pen_export,0,0,0)
+    pen_export.connect('clicked',self.fileChooser_save,"")
 
     title = Gtk.Label(label=title,width_request = 1000)
     sc = title.get_style_context()
@@ -281,28 +379,28 @@ class PenSettingsPopup(BaseSettingsPopoup):
     self.db_session.commit()
     self.remove_pen_rows()
     self.add_column_names()
+    self.get_available_pens()
     self.add_pen_rows(self.chart_filter)
     self.delete_pen_object(row_id,settings.chart_id)
 
   def add_pen_rows(self,chart_filter,*args):
     #pen row
-    if chart_filter == 'All':
-      settings = self.db_session.query(self.Tbl).order_by(self.Tbl.id)
-    else:
-      settings = self.db_session.query(self.Tbl).filter(self.Tbl.chart_id == int(chart_filter)).order_by(self.Tbl.id) 
-    params = {}
-    if len(settings.all()) == 0:
+    if not self.pens_available:
       self.pen_grid.set_column_homogeneous(True)
     else:
-      self.pen_grid.set_column_homogeneous(False)      
-    for pen in settings:
-      for c in self.pen_column_names:
-        params[c] = getattr(pen, c)
-      row = Pen_row(params,self.pen_grid,self.pen_row_num,self.app,self)
-      self.create_delete_button(params['id'],self.pen_row_num)
-      params.clear()
-      self.pen_row_num += 1
-      self.pen_settings.append(row)
+      self.pen_grid.set_column_homogeneous(False)   
+    temp = {}
+    for key, pen in self.pens_available.items():
+      if chart_filter != 'All':
+        if str(pen['chart_id']) == chart_filter:
+          temp[key] = pen
+      else:
+        temp = self.pens_available
+    for key, pen in temp.items():
+        row = Pen_row(pen,self.pen_grid,self.pen_row_num,self.app,self)
+        self.create_delete_button(pen['id'],self.pen_row_num)
+        self.pen_row_num += 1
+        self.pen_settings.append(row)
     self.show_all()
 
   def remove_pen_rows(self,*args):
@@ -324,9 +422,11 @@ class PenSettingsPopup(BaseSettingsPopoup):
 
   def create_pen_object(self,id,chart_id,*args):
     self.app.charts[chart_id].add_pen(id)
+    self.get_available_pens()
   
   def delete_pen_object(self,id,chart_id,*args):
     self.app.charts[chart_id].delete_pen(id)
+    self.get_available_pens()
 
   def insert_pen_row(self,*args):
     self.pen_grid.set_column_homogeneous(False) 
@@ -368,6 +468,183 @@ class PenSettingsPopup(BaseSettingsPopoup):
     self.unsaved_pen_rows = {}
     self.close_popup(None)
 
+  def get_available_tags(self,c_id,*args):
+    new_params = {}
+    count = 1
+    self.conx_tags = {}
+    for conx_id,conx_obj in self.app.link.get('connections').items():
+      tag_items = conx_obj.return_tag_parameters()  #return list of tag parameters from the specific connection
+      for tag_id,tag_obj in conx_obj.get('tags').items():
+        for c in tag_items:
+          new_params[c] = getattr(tag_obj, c)
+        self.conx_tags[count] = new_params
+        new_params = {}
+        count += 1
+      self.tags_available[conx_id]= self.conx_tags
+      self.conx_tags = {}
+      count = 1
+
+  def get_available_connections(self,*args):
+
+    conx_items = ['id', 'connection_type', 'description']
+    new_params = {}
+    count = 1
+    self.connections_available = {0: {'id': '', 'connection_type': 0, 'description': ''}}
+    for conx_id,conx_obj in self.app.link.get('connections').items():
+      for c in conx_items:
+        new_params[c] = getattr(conx_obj, c)
+      self.connections_available[count] = new_params
+      new_params = {}
+      count += 1
+
+  def get_available_pens(self,*args):
+    params = {}
+    pen = {}
+    settings = self.db_session.query(self.Tbl).order_by(self.Tbl.id)
+    for pen_param in settings:
+      for c in self.pen_column_names:
+        pen[c] = getattr(pen_param, c)
+      params[pen['id']] = pen
+      pen = {}
+    self.pens_available = params
+
+  def fileChooser_open(self,param,filt_pattern = ["*.xlsx"]):
+    #Complete the import of the file, be sure to check if connection is running
+      open_dialog = Gtk.FileChooserDialog(
+          title="Please choose a file", parent=self, action=Gtk.FileChooserAction.OPEN
+      )
+      open_dialog.add_buttons(
+          Gtk.STOCK_CANCEL,
+          Gtk.ResponseType.CANCEL,
+          Gtk.STOCK_OPEN,
+          Gtk.ResponseType.OK,
+      )
+      filter = Gtk.FileFilter()
+      filter.set_name("*.xlsx")
+      for pat in filt_pattern:
+          filter.add_pattern(pat)
+      #open_dialog.add_filter(filter)
+
+      response = open_dialog.run()
+      if response == Gtk.ResponseType.OK:
+          passthrough = param
+          file_name = open_dialog.get_filename()
+          self.import_pens(file_name,passthrough)
+      elif response == Gtk.ResponseType.CANCEL:
+        pass
+        # don't bother building the window
+        #self.destroy()
+      open_dialog.destroy()
+
+  def fileChooser_save(self,param,filt_pattern = ["*.xlsx"]):
+    save_dialog = Gtk.FileChooserDialog("Save As", self,
+                                        Gtk.FileChooserAction.SAVE,
+                                        (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                          Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+    save_dialog.set_current_name('Pens_Export')
+    filter = Gtk.FileFilter()
+    filter.set_name("*.xlsx")
+    for pat in filt_pattern:
+        filter.add_pattern(pat)
+    save_dialog.add_filter(filter)
+    response = save_dialog.run()
+    if response == Gtk.ResponseType.OK:
+        file_name = save_dialog.get_filename()
+        self.export_pens(file_name,param)
+    else:
+      pass
+      # don't bother building the window
+      #self.destroy()
+    save_dialog.destroy()
+
+  def export_pens(self,directory_name,t_filter,*args):
+    file_name_suffix = 'xlsx'
+    dest_filename = os.path.join(directory_name +"." + file_name_suffix)
+    wb = Workbook()
+    if self.pens_available: #checks if dictionary of pens is not empty
+      sheet = wb.active
+      sheet.title = "pens"
+      for key, pen in self.pens_available.items():
+        columns = list(pen.keys()) #get pen column headers
+      sheet.append(columns)
+      num_pens = len(self.pens_available)
+      for key, pen in self.pens_available.items():
+        row = list(pen.values())
+        sheet.append(row)
+    else:
+      self.display_msg(msg="No Pens To Export")
+    try:
+      wb.save(filename = dest_filename)
+      self.display_msg(msg="Exported {} Pens To File".format(num_pens))
+    except:
+      self.display_msg(msg="Save Failed")
+      print('Save Failed')
+
+  def import_pens(self,directory_name,conx_selected,*args):
+    #Need to deal with only importing pens to connections which are stopped
+    dest_filename = os.path.join(directory_name)
+    wb = load_workbook(dest_filename)
+    ws = wb.active
+    for row in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+      header_row = row
+    bad_pen = []
+    r = 0
+    pens = {}
+    for row in ws.values:
+      if r != 0:  #skip header row
+        col = 0
+        if len(header_row) == len(row) and (not None in row): #check for missing element in row
+          pens[row[0]] = {} #Make key the pen ID value
+          for i in header_row :
+            if i == 'id' or i == 'chart_id':
+              pens[row[0]][i] = int(row[col])
+            elif i == 'scale_lock' or i == 'scale_auto':
+              pens[row[0]][i] = bool(row[col])
+            else:
+              pens[row[0]][i] = str(row[col])
+            col +=1
+        else:
+          bad_pen.append(row[0])
+      r += 1
+    if bad_pen:
+      self.display_msg(msg="{} Pen(s) Were Incorectly Formated And Were Not Imported".format(str(len(bad_pen))))
+    
+    existing_keys = list(self.pens_available.keys())
+    duplicate_pen = []
+    new_pens = {}
+    if pens:  #Are there any pens to import?
+      for k in pens.keys():
+        if k in existing_keys:
+          duplicate_pen.append(pens[k]['id'])
+        else:
+          ########################################################### NEED TO ADD SECTION TO VERIFY / CHECK PEN SETTINGS IMPORT VALUES MAKE SENSE
+          new_pens[k] = pens[k]
+    if new_pens:
+      for k in new_pens.keys():
+        new = self.Tbl(chart_id = new_pens[k]['chart_id'],id = new_pens[k]['id'])
+        self.db_session.add(new)
+        self.db_session.commit()    
+        self.db_session.refresh(new)  #Retrieves newly created pen id from the database (new.id)
+        row = Pen_row(new_pens[k],self.pen_grid,self.pen_row_num,self.app,self) #add row to popup
+        self.create_delete_button(new_pens[k]['id'],self.pen_row_num)           #add buttons to row
+        self.pen_row_num += 1
+        self.pen_settings.append(row)
+        self.create_pen_object(new_pens[k]['id'],new_pens[k]['chart_id'])     #add pen object to specific chart
+        row.update_db()                                                       #update pen with imported settings
+    self.show_all()
+    self.display_msg(msg="{} Pen(s) Were Were Imported".format(str(len(new_pens.keys()))))
+
+
+
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
+
   def close_popup(self, button,msg="Abandon Pen Settings Changes?"):
     if self.unsaved_changes_present:
       popup = PopupConfirm(self, msg=msg)
@@ -383,6 +660,7 @@ class PenSettingsPopup(BaseSettingsPopoup):
 
 
 class Pen_row(object):
+
   def __init__(self,params,pen_grid,row_num,app,parent,*args):
     self.app = app    
     self.parent = parent
@@ -463,11 +741,13 @@ class Pen_row(object):
     db_tag = str(self.params['tag_id'])
     i = 0
     self.tag_select = Gtk.ComboBoxText(hexpand = True)
-    for key, val in self.tags_available.items():
-      self.tag_select.append_text(val['id'])
-      if val['id'] == db_tag:
-        i = key
-    self.tag_select.set_active(i)
+    self.tag_select.append_text("")   #Add blank selection
+    if self.params['connection_id'] in self.tags_available.keys():
+      for key, val in self.tags_available[self.params['connection_id']].items():
+        self.tag_select.append_text(val['id'])
+        if val['id'] == db_tag:
+          i = key
+      self.tag_select.set_active(i)
     sc = self.tag_select.get_style_context()
     sc.add_class('ctrl-combo')
     self.pen_grid.attach(self.tag_select,3,self.pen_row_num,1,1)
@@ -568,7 +848,6 @@ class Pen_row(object):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
   
   def row_changed(self,*args):
@@ -581,24 +860,20 @@ class Pen_row(object):
 
   def new_connection_selelcted(self, *args):
     c_temp = self.conn_select.get_active_text()
-    id = ''
-    for key, val in self.connections_available.items():
-      if val['id'] == c_temp:
-        id = str(val['id'])
-    self.db_conn_id = id
-    self.get_available_tags(self.db_conn_id)
     self.tag_select.remove_all()
-    for key, val in self.tags_available.items():
-      self.tag_select.append_text(val['id'])
+    self.tag_select.append_text("")
+    if c_temp in self.tags_available.keys():
+      for key, val in self.tags_available[c_temp].items():
+        self.tag_select.append_text(val['id'])
     self.tag_select.set_active(0)
-  
+
   def save_settings(self,button,*args):
     self.update_db()
     self.row_updated()
 
   def update_db(self,*args):
     p_settings = {}
-    p_settings['id'] = self.id
+    p_settings['id'] = self.chart_id
     settings = self.db_settings_session.query(self.Pen_Settings_Tbl).filter(self.Pen_Settings_Tbl.id == self.id).first()  # save the current settings
     if settings:
       chart_id= int(self.chart_number.get_active_text())
@@ -647,7 +922,6 @@ class Pen_row(object):
       settings.scale_auto = auto
       p_settings['scale_auto'] = auto
 
-
     self.db_settings_session.commit()
     self.update_pen_object(p_settings)
 
@@ -692,20 +966,26 @@ class Pen_row(object):
       count += 1
 
   def get_available_tags(self,c_id,*args):
-    tag_items = ['id', 'connection_id', 'description','datatype','tag_type']
+    self.tags_available = {}
     new_params = {}
     count = 1
-    self.tags_available = {0: {'id': '', 'datatype': 0, 'description': '','c_id':None}}
-    conx_obj = self.app.link.get("connections").get(c_id)
-    for tag_id,tag_obj in conx_obj.get('tags').items():
-      for c in tag_items:
-        new_params[c] = getattr(tag_obj, c)
-      self.tags_available[count] = new_params
-      new_params = {}
-      count += 1
+    self.conx_tags = {}
+    for conx_id,conx_obj in self.app.link.get('connections').items():
+      if conx_obj:
+        tag_items = conx_obj.return_tag_parameters()  #return list of tag parameters from the specific connection
+        for tag_id,tag_obj in conx_obj.get('tags').items():
+          for c in tag_items:
+            new_params[c] = getattr(tag_obj, c)
+          self.conx_tags[count] = new_params
+          new_params = {}
+          count += 1
+        self.tags_available[conx_id]= self.conx_tags
+        self.conx_tags = {}
+        count = 1
 
 
 class TagMainPopup(Gtk.Dialog):
+
   def __init__(self, parent,app):
     super().__init__(transient_for = parent,flags=0) 
     self.unsaved_changes_present = False
@@ -782,7 +1062,8 @@ class TagMainPopup(Gtk.Dialog):
     sc = tag_import.get_style_context()
     sc.add_class('ctrl-button')
     self.title_bar.pack_start(tag_import,0,0,0)
-    #tag_import.connect('clicked',self.add_tag_popup,None,self.connections_available)
+    tag_import.connect('clicked',self.import_popup)
+
     tag_export = Gtk.Button(width_request = 30)
     p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Export.png', 30, -1, True)
     image = Gtk.Image(pixbuf=p_buf)
@@ -790,7 +1071,7 @@ class TagMainPopup(Gtk.Dialog):
     sc = tag_export.get_style_context()
     sc.add_class('ctrl-button')
     self.title_bar.pack_start(tag_export,0,0,0)
-    #tag_export.connect('clicked',self.add_tag_popup,None,self.connections_available)
+    tag_export.connect('clicked',self.export_popup)
 
     title = Gtk.Label(label=title,width_request = 500)
     sc = title.get_style_context()
@@ -862,6 +1143,126 @@ class TagMainPopup(Gtk.Dialog):
     self.add_tag_rows(self.tag_filter_val)
     self.show_all()
 
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.ok_button.connect('clicked',self.save_settings,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    #self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.apply_button.connect('clicked',self.save_settings,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+  def import_tags(self,directory_name,conx_selected,*args):
+    #Need to deal with only importing tags to connections which are stopped
+    dest_filename = os.path.join(directory_name)
+    wb = load_workbook(dest_filename)
+    ws = wb.active
+    for row in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+      header_row = row
+    bad_tag = []
+    r = 0
+    tags = {}
+    for row in ws.values:
+      if r != 0:  #skip header row
+        tags[r] = {}
+        col = 0
+        if row[1] == conx_selected:           #check if tags connection_id is the same is the one selected
+          if len(header_row) == len(row) and (not None in row): #check for missing element in row
+            for i in header_row :
+              tags[r][i] = str(row[col])
+              col +=1
+          else:
+            bad_tag.append(row[0])
+      r += 1
+    if bad_tag:
+      self.display_msg(msg="{} Tag(s) Were Incorectly Formated And Were Not Imported".format(str(len(bad_tag))))
+    
+    duplicate_tag = []
+    new_tags = []
+    existing_tags = []
+    if tags:  #Are there any tags to import?
+      conx_obj = self.app.link.get('connections').get(conx_selected)
+      if conx_obj != None:
+        for tag_id,tag_obj in conx_obj.get('tags').items():
+            existing_tags.append(tag_id)      #Collect all tags in
+        for k in tags.keys():
+          if tags[k]['id'] in existing_tags:
+            duplicate_tag.append(tags[k]['id'])
+          else:
+            self.create_tag(tags[k])
+            new_tags.append(tags[k]['id'])
+     
+    if duplicate_tag and not new_tags:
+      self.display_msg(msg="{} Tag(s) Already Exist And Were Not Imported".format(str(len(duplicate_tag))))
+    elif new_tags:
+      self.display_msg(msg="{} Tag(s) Were Imported".format(str(len(new_tags))))
+    else:
+      self.display_msg(msg="No Tags Imported")
+
+  def export_tags(self,directory_name,t_filter,*args):
+    file_name_suffix = 'xlsx'
+    dest_filename = os.path.join(directory_name +"." + file_name_suffix)
+    wb = Workbook()
+    if self.tags_available[t_filter]: #checks if dictionary of tags is not empty
+      sheet = wb.active
+      sheet.title = t_filter
+      for num in self.tags_available[t_filter]:
+          columns = list(self.tags_available[t_filter][num].keys()) #get tag column headers
+      sheet.append(columns)
+      num_tags = len(self.tags_available[t_filter])
+      for x in range(len(self.tags_available[t_filter])): #fill table with number of tags available in connection
+        row = list(self.tags_available[t_filter][x+1].values())
+        #sheet.cell(column=c, row=(x+2), value=self.tags_available[t_filter][x+1][header])
+        sheet.append(row)
+    else:
+      self.display_msg(msg="No Tags In Connection To Export")
+    try:
+      wb.save(filename = dest_filename)
+      self.display_msg(msg="Exported {} Tags To File".format(num_tags))
+    except:
+      self.display_msg(msg="Save Failed")
+      print('Save Failed')
+
   def tree_item_clicked(self, treeview, event):
     pthinfo = treeview.get_path_at_pos(event.x, event.y)
     if event.button == 1: #left click
@@ -927,55 +1328,6 @@ class TagMainPopup(Gtk.Dialog):
     selection = treeview.get_selection()
     tree_model, tree_iter = selection.get_selected()
 
-  def build_footer(self):
-    #CANCEL Button
-    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
-    self.cancel_button.connect('clicked',self.close_popup)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    box = Gtk.Box()
-    lbl = Gtk.Label('Cancel')
-    sc = lbl.get_style_context()
-    sc.add_class('font-16')
-    box.pack_start(lbl,1,1,1)
-    #box.pack_start(image,0,0,0)
-    self.cancel_button.add(box)
-    self.footer_bar.pack_end(self.cancel_button,0,0,1)
-    sc = self.cancel_button.get_style_context()
-    sc.add_class('ctrl-button-footer')
-
-    #OK Button
-    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
-    self.ok_button.connect('clicked',self.save_settings,True)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    box = Gtk.Box()
-    lbl = Gtk.Label('OK')
-    sc = lbl.get_style_context()
-    sc.add_class('font-16')
-    box.pack_start(lbl,1,1,1)
-    #box.pack_start(image,0,0,0)
-    self.ok_button.add(box)
-    #self.footer_bar.pack_end(self.ok_button,0,0,1)
-    sc = self.ok_button.get_style_context()
-    sc.add_class('ctrl-button-footer')
-
-    #APPLY Button
-    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
-    self.apply_button.connect('clicked',self.save_settings,False)
-    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
-    image = Gtk.Image(pixbuf=p_buf)
-    box = Gtk.Box()
-    lbl = Gtk.Label('Apply')
-    sc = lbl.get_style_context()
-    sc.add_class('font-16')
-    box.pack_start(lbl,1,1,1)
-    #box.pack_start(image,0,0,0)
-    self.apply_button.add(box)
-    #self.footer_bar.pack_end(self.apply_button,0,0,1)
-    sc = self.apply_button.get_style_context()
-    sc.add_class('ctrl-button-footer')
-
   def add_tag_rows(self,filter,*args):
     tag_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Tag.png', 25, 25)
     settings_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/settings.png', 25, 25)
@@ -1027,7 +1379,6 @@ class TagMainPopup(Gtk.Dialog):
     self.listbox.add(l_row)
 
   def get_available_tags(self,c_id,*args):
-    #self.tags_available = {}
     new_params = {}
     count = 1
     self.conx_tags = {}
@@ -1082,6 +1433,74 @@ class TagMainPopup(Gtk.Dialog):
     else:
       return False
 
+  def export_popup(self,*args):
+    popup = Export_ImportTagsPopup(self, self.app,export = True)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      results = (popup.get_result())
+      self.fileChooser_save(results['conx_select'],filt_pattern = ["*.xlsx"])
+    else:
+      return False
+
+  def import_popup(self,*args):
+    popup = Export_ImportTagsPopup(self, self.app,export = False)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      results = (popup.get_result())
+      self.fileChooser_open(results['conx_select'],filt_pattern = ["*.xlsx"])
+    else:
+      return False
+
+  def fileChooser_open(self,conx_sel,filt_pattern = ["*.xlsx"]):
+    #Complete the import of the file, be sure to check if connection is running
+      open_dialog = Gtk.FileChooserDialog(
+          title="Please choose a file", parent=self, action=Gtk.FileChooserAction.OPEN
+      )
+      open_dialog.add_buttons(
+          Gtk.STOCK_CANCEL,
+          Gtk.ResponseType.CANCEL,
+          Gtk.STOCK_OPEN,
+          Gtk.ResponseType.OK,
+      )
+      filter = Gtk.FileFilter()
+      filter.set_name("*.xlsx")
+      for pat in filt_pattern:
+          filter.add_pattern(pat)
+      open_dialog.add_filter(filter)
+
+      response = open_dialog.run()
+      if response == Gtk.ResponseType.OK:
+          conx_name_selected = conx_sel
+          file_name = open_dialog.get_filename()
+          self.import_tags(file_name,conx_name_selected)
+      elif response == Gtk.ResponseType.CANCEL:
+          # don't bother building the window
+          self.destroy()
+      open_dialog.destroy()
+
+  def fileChooser_save(self,conx_sel,filt_pattern = ["*.xlsx"]):
+    save_dialog = Gtk.FileChooserDialog("Save As", self,
+                                        Gtk.FileChooserAction.SAVE,
+                                        (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                          Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+    save_dialog.set_current_name('Tags_Export')
+    filter = Gtk.FileFilter()
+    filter.set_name("*.xlsx")
+    for pat in filt_pattern:
+        filter.add_pattern(pat)
+    save_dialog.add_filter(filter)
+    response = save_dialog.run()
+    if response == Gtk.ResponseType.OK:
+        tag_filter = conx_sel
+        file_name = save_dialog.get_filename()
+        self.export_tags(file_name,tag_filter)
+    else:
+        # don't bother building the window
+        self.destroy()
+    save_dialog.destroy()
+
   def add_tag_popup(self,button,duplicate_name_params,*args):
     popup = AddTagPopup(self,duplicate_name_params,self.app,self.connections_available)
     response = popup.run()
@@ -1130,14 +1549,24 @@ class TagMainPopup(Gtk.Dialog):
     self.add_tag_rows(self.tag_filter_val)
     self.show_all()
 
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
+
   def create_tag(self,params,*args):
-    #sNEED TO HAVE IT PASS IN SOMEThing FOR THE ADDRESS EXCEPT 12
+    if 'address' not in params:
+      params['address'] = '12'  # default address when not passed in because required to create connection
     conx_obj = self.app.link.get('connections').get(params['connection_id'])
     conx_obj.new_tag({"id": params['id'],
                             "connection_id": params['connection_id'],
                             "description": params['description'],
                             "datatype": params['datatype'],
-                            "address": '12'
+                            "address": params['address'],
     })
     tag_obj = conx_obj.get('tags').get(params['id'])
     if tag_obj != None:
@@ -1161,9 +1590,9 @@ class TagMainPopup(Gtk.Dialog):
         self.app.link.save_tag(tag_obj)
 
   def insert_tag_row(self,button,params,*args):
-    tag_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Tag.png', 20, 20)
-    settings_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/settings.png', 20, 20)
-    delete_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Delete.png', 20, 20)
+    tag_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Tag.png', 25, 25)
+    settings_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/settings.png', 25, 25)
+    delete_icon = GdkPixbuf.Pixbuf.new_from_file_at_size('./ProcessPlot/Public/images/Delete.png', 25, 25)
     if 'address' in params.keys():
       address = params['address']
     else:
@@ -1744,7 +2173,6 @@ class TagSettingsPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
 
 
@@ -2936,7 +3364,6 @@ class ConnectionSettingsPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
   
 
@@ -3269,6 +3696,41 @@ class PopupConfirm(Gtk.Dialog):
       Gtk.Dialog.__init__(self, "Confirm?", parent, Gtk.DialogFlags.MODAL,
                           (Gtk.STOCK_YES, Gtk.ResponseType.YES,
                             Gtk.STOCK_NO, Gtk.ResponseType.NO)
+                          )
+      self.set_default_size(300, 200)
+      self.set_border_width(10)
+      sc = self.get_style_context()
+      sc.add_class("dialog-border")
+      self.set_keep_above(True)
+      self.set_decorated(False)
+      box = Gtk.Box()
+      box.set_spacing(10)
+      box.set_orientation(Gtk.Orientation.VERTICAL)
+      c = self.get_content_area()
+      c.add(box)
+      box.pack_start(Gtk.Image(stock=Gtk.STOCK_DIALOG_WARNING), 0, 0, 0)
+      confirm_msg = Gtk.Label(msg + '\n\n')
+      sc = confirm_msg.get_style_context()
+      sc.add_class('borderless-num-display')
+      sc.add_class('text-black-color')
+      sc.add_class('font-20')
+      box.pack_start(confirm_msg, 0, 0, 0)
+      sep = Gtk.Label(height_request=3)
+      c.pack_start(sep,1,1,1)
+      self.show_all()
+      #Add style to dialog buttons
+      a = self.get_action_area()
+      b = a.get_children()
+      for but in b:
+        sc = but.get_style_context()
+        sc.add_class("dialog-buttons")
+        sc.add_class("font-16")
+
+
+class PopupMessage(Gtk.Dialog):
+  def __init__(self, parent, msg='No Messaged Generated'):
+      Gtk.Dialog.__init__(self, "Confirm?", parent, Gtk.DialogFlags.MODAL,
+                          (Gtk.STOCK_OK, Gtk.ResponseType.YES)
                           )
       self.set_default_size(300, 200)
       self.set_border_width(10)
@@ -3685,7 +4147,6 @@ class ChartSettingsPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
 
   def close_popup(self, *args):
@@ -3983,7 +4444,6 @@ class TimeSpanPopup(Gtk.Dialog):
           #print("Selected: ID=%d, name=%s" % (row_id, name))
       else:
           entry = combo.get_child()
-          #print("Entered: %s" % entry.get_text())
 
   def load_settings(self,*args):
     settings = self.db_session.query(self.Tbl).filter(self.Tbl.id == int(self.c_id)).first()
@@ -3999,8 +4459,17 @@ class TimeSpanPopup(Gtk.Dialog):
         self.months.set_active((settings.start_month))
         self.year.set_value(settings.start_year)
     else:
+      self.display_msg(msg="Chart Not Found")
       print("Chart Not Found")
-      #using default values
+
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
 
   def save_settings(self,but,chart_id,auto_close,*args):
     settings = self.db_session.query(self.Tbl).filter(self.Tbl.id == int(chart_id)).first()
@@ -4016,7 +4485,6 @@ class TimeSpanPopup(Gtk.Dialog):
     self.app.charts[chart_id].reload_chart()
     if auto_close:
       self.close_popup()
-
 
   def show_leading_zeros(obj,spin_button,num,*args):
     adjustment = spin_button.get_adjustment()
@@ -4037,8 +4505,213 @@ class TimeSpanPopup(Gtk.Dialog):
       pass
     else:
       pass
-      #callback(args)
     numpad.destroy()
+
+  def close_popup(self, *args):
+    self.destroy()
+
+
+class Export_ImportTagsPopup(Gtk.Dialog):
+  def __init__(self, parent,app,export):
+    Gtk.Dialog.__init__(self, '',None, Gtk.DialogFlags.MODAL,
+                        (Gtk.STOCK_OK, Gtk.ResponseType.YES,
+                        Gtk.STOCK_CANCEL, Gtk.ResponseType.NO)
+                        )
+    self.app = app
+    self.parent = parent
+    self.export = export
+    self.connections_available = {}
+    self.connect("response", self.on_response)
+    self.result = {}
+    self.get_available_connections()
+    self.build_window()
+    self.content_area = self.get_content_area()
+    self.dialog_window = Gtk.Box(width_request=300,orientation=Gtk.Orientation.VERTICAL)
+    self.content_area.add(self.dialog_window )
+    ### - Title Bar- ###
+    self.title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=300)
+    self.dialog_window.pack_start(self.title_bar,0,0,1)
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+
+    ### - Base Area- ###
+    self.base_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    self.dialog_window.pack_start(self.base_area, 0, 0, 0)
+
+    ### -footer- ####
+    divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    sc = divider.get_style_context()
+    sc.add_class('Hdivider')
+    self.dialog_window.pack_start(divider,0,0,1)
+    self.footer_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,height_request=20,width_request=600)
+    self.dialog_window.pack_start(self.footer_bar,0,0,1)
+    self.build_header()
+    self.build_base()
+    #self.build_footer()
+    self.load_settings()
+    self.show_all()
+
+  def build_window(self, *args):
+    self.set_default_size(200, 200)
+    self.set_decorated(False)
+    self.set_border_width(10)
+    self.set_keep_above(False)
+    sc = self.get_style_context()
+    sc.add_class("dialog-border")
+
+  def build_header(self,*args):
+    #Save Button
+    self.save_button = Gtk.Button(width_request = 30)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Save.png', 30, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.save_button.add(image)
+    sc = self.save_button.get_style_context()
+    sc.add_class('ctrl-button')
+    bx = Gtk.Box()
+    bx.pack_end(self.save_button,0,0,0)
+    #self.title_bar.pack_start(bx,0,0,0)
+    #self.save_button.connect('clicked',self.save_settings,self.c_id)
+
+    #title
+    if self.export:
+      title = Gtk.Label(label='Export Tags')
+    else:
+      title = Gtk.Label(label='Import Tags')
+    sc = title.get_style_context()
+    sc.add_class('text-black-color')
+    sc.add_class('font-22')
+    sc.add_class('font-bold')
+    self.title_bar.pack_start(title,1,1,1)
+
+    #exit button
+    self.exit_button = Gtk.Button(width_request = 20)
+    self.exit_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Close.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    self.exit_button.add(image)
+    #self.title_bar.pack_end(self.exit_button,0,0,1)
+    sc = self.exit_button.get_style_context()
+    sc.add_class('exit-button')
+
+  def build_base(self,*args):
+
+    #Label
+    bx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    if self.export:
+      lbl = Gtk.Label("Select Connection To Export Tags")
+    else:
+      lbl = Gtk.Label("Select Connection To Import Tags To")
+    bx.pack_start(lbl,1,1,1)
+    self.base_area.pack_start(bx,0,0,0)
+
+    self.tag_sort = Gtk.ComboBoxText()
+    self.tag_sort.set_entry_text_column(0)
+    for x in self.connections_available:
+      self.tag_sort.append_text(self.connections_available[x]['id'])
+    self.tag_sort.set_active(1)
+    sc = self.tag_sort.get_style_context()
+    sc.add_class('ctrl-combo')
+    self.base_area.pack_start(self.tag_sort,0,0,0)
+
+  def build_footer(self):
+    #CANCEL Button
+    self.cancel_button = Gtk.Button(width_request = 100, height_request = 30)
+    self.cancel_button.connect('clicked',self.close_popup)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Cancel')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.cancel_button.add(box)
+    self.footer_bar.pack_end(self.cancel_button,0,0,1)
+    sc = self.cancel_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #OK Button
+    self.ok_button = Gtk.Button(width_request = 100, height_request = 30)
+    #self.ok_button.connect('clicked',self.save_settings,self.c_id,True)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('OK')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.ok_button.add(box)
+    self.footer_bar.pack_end(self.ok_button,0,0,1)
+    sc = self.ok_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+    #APPLY Button
+    self.apply_button = Gtk.Button(width_request = 100, height_request = 30)
+    #self.apply_button.connect('clicked',self.save_settings,self.c_id,False)
+    p_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('./ProcessPlot/Public/images/Return.png', 20, -1, True)
+    image = Gtk.Image(pixbuf=p_buf)
+    box = Gtk.Box()
+    lbl = Gtk.Label('Apply')
+    sc = lbl.get_style_context()
+    sc.add_class('font-16')
+    box.pack_start(lbl,1,1,1)
+    #box.pack_start(image,0,0,0)
+    self.apply_button.add(box)
+    #self.footer_bar.pack_end(self.apply_button,0,0,1)
+    sc = self.apply_button.get_style_context()
+    sc.add_class('ctrl-button-footer')
+
+  def load_settings(self,*args):
+    pass
+
+  def display_msg(self,msg,*args):
+    popup = PopupMessage(self, msg=msg)
+    response = popup.run()
+    popup.destroy()
+    if response == Gtk.ResponseType.YES:
+      return True
+    else:
+      return False
+
+  def save_settings(self,but,chart_id,auto_close,*args):
+    pass
+
+  def add_style(self, item,style):
+    sc = item.get_style_context()
+    for sty in style:
+      sc.add_class(sty)
+
+  def open_numpad(self,button,widget_obj,params,*args):
+    numpad = ValueEnter(self,widget_obj,params)
+    response = numpad.run()
+    if response == Gtk.ResponseType.NO:
+      pass
+    else:
+      pass
+    numpad.destroy()
+
+  def get_available_connections(self,*args):
+
+    conx_items = ['id', 'connection_type', 'description']
+    new_params = {}
+    count = 1
+    #self.connections_available = {0: {'id': '', 'connection_type': 0, 'description': ''}}
+    self.connections_available = {}
+    for conx_id,conx_obj in self.app.link.get('connections').items():
+      for c in conx_items:
+        new_params[c] = getattr(conx_obj, c)
+      self.connections_available[count] = new_params
+      new_params = {}
+      count += 1
+
+  def on_response(self, widget, response_id):
+    self.result['conx_select'] = self.tag_sort.get_active_text()
+  
+  def get_result(self):
+    return self.result
 
   def close_popup(self, *args):
     self.destroy()
